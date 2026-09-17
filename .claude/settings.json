@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./bot/data/**)",
+      "Bash(cat ./.env*)",
+      "Bash(type ./.env*)",
+      "Bash(more ./.env*)",
+      "Bash(Get-Content ./.env*)",
+      "Bash(cat ./bot/data/**)",
+      "Bash(type ./bot/data/**)",
+      "Bash(more ./bot/data/**)",
+      "Bash(Get-Content ./bot/data/**)"
+    ]
+  }
+}
