@@ -2,7 +2,7 @@ package com.damdam.bot.holdings;
 
 import java.util.List;
 
-record HoldingsOverview(
+public record HoldingsOverview(
 	CurrencyAmount totalPurchaseAmount,
 	MarketValueSummary marketValue,
 	ProfitLossSummary profitLoss,

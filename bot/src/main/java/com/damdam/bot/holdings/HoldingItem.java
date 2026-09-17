@@ -1,6 +1,6 @@
 package com.damdam.bot.holdings;
 
-record HoldingItem(
+public record HoldingItem(
 	String symbol,
 	String name,
 	String marketCountry,

@@ -1,6 +1,6 @@
 package com.damdam.bot.orders;
 
-record OrderExecution(
+public record OrderExecution(
 	String filledQuantity,
 	String averageFilledPrice,
 	String filledAmount,

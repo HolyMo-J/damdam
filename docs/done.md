@@ -22,3 +22,10 @@
 - 가짜 체결 이벤트 JSON으로 웹소켓 메시지 처리 로직 단위 테스트 (`OrderEventWebSocketHandlerTest`, 실제 API 호출 없음)
 - 웹소켓 주문 이벤트 수신을 백그라운드로 띄우고 끄는 스크립트 (`bot/scripts/start-listen.ps1`, `stop-listen.ps1`), 실제 실행 확인 완료
 - 개발 PC 한글 깨짐 추가 수정: PowerShell 스크립트 파일을 BOM 있는 UTF-8로 저장 (BOM 없으면 옛 한글 코드페이지로 오인식), `Get-Content`로 로그 볼 때는 `-Encoding UTF8` 필요
+- 시간 기준 청산 알림 (`liquidation` 패키지, v0): 최대 보유 5거래일(docs/strategy.md) 도달 종목을 로그로 알림. 자동 매도는 하지 않음
+  - 보유 시작 시점은 최근 30일 주문 기록을 FIFO로 리플레이해서, 포지션이 0이었다가 다시 쌓인 지점의 첫 매수 체결일로 판단 (동일 종목 반복 매매 대응)
+  - 30일 조회 범위 안에서 매수 기록을 못 찾으면 "그보다 오래 보유 중이라 기준을 이미 넘었을 가능성이 높음"으로 알림
+  - 거래일은 월~금으로만 계산 (v0: 공휴일 미반영)
+  - 평일 장 시작 직후(09:05 KST) 자동 실행 (`TimeExitScheduler`, listen 프로필), `query` 프로필로 즉시 확인도 가능
+  - 실제 계좌로 실행 확인: 보유 3종목 중 1종목은 정확한 경과일, 2종목은 30일 초과로 알림 정상 동작
+  - FIFO 판단 로직과 거래일 계산은 가짜 데이터로 단위 테스트 (`PositionEntryResolverTest`, `TradingDayCalculatorTest`)

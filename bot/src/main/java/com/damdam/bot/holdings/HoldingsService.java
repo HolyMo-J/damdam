@@ -18,7 +18,7 @@ public class HoldingsService {
 		this.tokenService = tokenService;
 	}
 
-	HoldingsOverview getHoldings(long accountSeq) {
+	public HoldingsOverview getHoldings(long accountSeq) {
 		HoldingsResponse response = restClient.get()
 			.uri("/api/v1/holdings")
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken())

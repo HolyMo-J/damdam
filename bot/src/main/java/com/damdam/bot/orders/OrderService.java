@@ -4,8 +4,14 @@ import com.damdam.bot.token.TokenService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class OrderService {
@@ -30,5 +36,46 @@ public class OrderService {
 			.body(OrdersResponse.class);
 
 		return response == null ? List.of() : response.result().orders();
+	}
+
+	// 최근 lookbackDays 안의 체결 완료 주문을 시간순으로 반환한다 (시간 청산 판단용)
+	public List<Order> getClosedOrders(long accountSeq, String symbol, int lookbackDays) {
+		List<Order> orders = new ArrayList<>();
+		String cursor = null;
+		String from = LocalDate.now().minusDays(lookbackDays).toString();
+
+		while (true) {
+			String uri = UriComponentsBuilder.fromPath("/api/v1/orders")
+				.queryParam("status", "CLOSED")
+				.queryParam("symbol", symbol)
+				.queryParam("from", from)
+				.queryParam("limit", 100)
+				.queryParamIfPresent("cursor", Optional.ofNullable(cursor))
+				.toUriString();
+
+			OrdersResponse response = restClient.get()
+				.uri(uri)
+				.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken())
+				.header(ACCOUNT_HEADER, String.valueOf(accountSeq))
+				.retrieve()
+				.body(OrdersResponse.class);
+
+			if (response == null) {
+				break;
+			}
+			orders.addAll(response.result().orders());
+			if (!response.result().hasNext()) {
+				break;
+			}
+			cursor = response.result().nextCursor();
+		}
+
+		orders.sort(Comparator.comparing(this::fillOrOrderTime));
+		return orders;
+	}
+
+	private OffsetDateTime fillOrOrderTime(Order order) {
+		String filledAt = order.execution().filledAt();
+		return OffsetDateTime.parse(filledAt != null ? filledAt : order.orderedAt());
 	}
 }
