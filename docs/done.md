@@ -17,3 +17,8 @@
 - 보유 종목 조회 (`HoldingsService`, `HoldingsQueryRunner`): `/api/v1/holdings` 호출로 평가금액, 손익, 종목별 수량과 손익률 조회
 - 계좌 목록을 프로세스 내에서 캐싱해서 중복 조회로 인한 429(호출 제한 초과) 방지
 - 개발 PC 파워쉘 콘솔 한글 깨짐 수정 (콘솔 UTF-8 인코딩을 프로필에 등록, 실행 정책을 RemoteSigned로 변경)
+- 체결 감지 웹소켓 클라이언트 (`orderevent` 패키지): `wss://openapi-ws.tossinvest.com/ws/v1` 연결, `personal:order` 구독, 60초 PING 유지, 끊기면 지수 백오프로 재연결 후 `GET /api/v1/orders?status=OPEN`으로 재동기화
+- 진행중 주문 조회 (`orders` 패키지, `OrderService`): 웹소켓 재동기화용
+- 가짜 체결 이벤트 JSON으로 웹소켓 메시지 처리 로직 단위 테스트 (`OrderEventWebSocketHandlerTest`, 실제 API 호출 없음)
+- 웹소켓 주문 이벤트 수신을 백그라운드로 띄우고 끄는 스크립트 (`bot/scripts/start-listen.ps1`, `stop-listen.ps1`), 실제 실행 확인 완료
+- 개발 PC 한글 깨짐 추가 수정: PowerShell 스크립트 파일을 BOM 있는 UTF-8로 저장 (BOM 없으면 옛 한글 코드페이지로 오인식), `Get-Content`로 로그 볼 때는 `-Encoding UTF8` 필요
