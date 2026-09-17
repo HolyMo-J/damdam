@@ -12,9 +12,9 @@
 
 ## 현재 상태
 - 현재 단계: 1단계 조회와 청산 봇
-- 완료: 토스증권 Open API 키 발급, 프로젝트 폴더 구조(bot, analysis, records, docs)와 보안 설정(.claude/settings.json, .gitignore, .env.example) 구성
-- 확인 필요: 허용 IP 등록, Java 21과 Python, Git 설치 (현재 미설치 상태, 사용자가 직접 설치 예정)
-- 다음 할 일: 위 설치와 허용 IP 등록 완료 후 Gradle 프로젝트 초기화, 조회 전용 스크립트 시작
+- 완료: 토스증권 Open API 키 발급, 프로젝트 폴더 구조(bot, analysis, records, docs)와 보안 설정(.claude/settings.json, .gitignore, .env.example) 구성, Java 21과 Python, Git 설치, 깃허브 저장소(HolyMo-J/damdam) 원격 연결과 push
+- 확인 필요: 허용 IP 등록 여부
+- 다음 할 일: 허용 IP 등록 확인 후 bot 폴더에 Gradle 프로젝트 초기화, 조회 전용 스크립트 시작
 
 ## 참고 문서 (필요할 때만 읽는다)
 - docs/strategy.md: 청산 규칙, 매매 전략, 연구 근거, 판단 기준. 청산이나 전략 관련 작업 시 읽는다
