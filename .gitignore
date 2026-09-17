@@ -5,8 +5,8 @@
 # 토큰 저장 파일
 bot/data/
 
-# 매매 기록
-records/
+# 매매 기록 (루트의 records 폴더만. bot 안의 records 패키지는 제외 대상 아님)
+/records/
 
 # 빌드 산출물
 bot/build/

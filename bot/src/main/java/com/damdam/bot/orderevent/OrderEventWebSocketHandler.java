@@ -1,5 +1,6 @@
 package com.damdam.bot.orderevent;
 
+import com.damdam.bot.records.TradeRecordWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.CloseStatus;
@@ -17,12 +18,15 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 
 	private final long accountSeq;
 	private final ObjectMapper objectMapper;
+	private final TradeRecordWriter tradeRecordWriter;
 	private final Runnable onConnected;
 	private final Runnable onDisconnected;
 
-	OrderEventWebSocketHandler(long accountSeq, ObjectMapper objectMapper, Runnable onConnected, Runnable onDisconnected) {
+	OrderEventWebSocketHandler(long accountSeq, ObjectMapper objectMapper, TradeRecordWriter tradeRecordWriter,
+			Runnable onConnected, Runnable onDisconnected) {
 		this.accountSeq = accountSeq;
 		this.objectMapper = objectMapper;
+		this.tradeRecordWriter = tradeRecordWriter;
 		this.onConnected = onConnected;
 		this.onDisconnected = onDisconnected;
 	}
@@ -55,10 +59,18 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 
 	private void handleOrderEvent(JsonNode node) {
 		OrderEventFrame frame = objectMapper.treeToValue(node, OrderEventFrame.class);
+		String event = frame.data().event();
 		var order = frame.data().order();
 		log.info("주문 이벤트 [{}] {} {} 수량 {}, 상태: {}, 체결수량: {}",
-			frame.data().event(), order.symbol(), order.side(), order.quantity(),
+			event, order.symbol(), order.side(), order.quantity(),
 			order.status(), order.execution().filledQuantity());
+
+		if ("FILL".equals(event) || "PARTIAL_FILL".equals(event)) {
+			var execution = order.execution();
+			tradeRecordWriter.record(order.orderId(), order.symbol(), order.side(), event,
+				execution.filledQuantity(), execution.averageFilledPrice(), execution.filledAmount(),
+				execution.commission(), execution.tax(), order.currency(), order.orderType(), order.status());
+		}
 	}
 
 	private void handleError(JsonNode node) {

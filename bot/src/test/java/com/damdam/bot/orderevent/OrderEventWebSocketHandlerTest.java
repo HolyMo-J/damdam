@@ -1,11 +1,17 @@
 package com.damdam.bot.orderevent;
 
+import com.damdam.bot.records.TradeRecordWriter;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.web.socket.TextMessage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OrderEventWebSocketHandlerTest {
 
@@ -57,8 +63,24 @@ class OrderEventWebSocketHandlerTest {
 	@Test
 	void handlerProcessesFillEventWithoutError() throws Exception {
 		ObjectMapper objectMapper = new ObjectMapper();
-		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, () -> {}, () -> {});
+		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-noop.csv");
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter, () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
+	}
+
+	@Test
+	void fillEventIsRecordedToCsv(@TempDir Path tempDir) throws Exception {
+		Path csvPath = tempDir.resolve("trades.csv");
+		ObjectMapper objectMapper = new ObjectMapper();
+		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter(csvPath.toString());
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter, () -> {}, () -> {});
+
+		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
+
+		String csvContent = Files.readString(csvPath);
+		assertTrue(csvContent.contains("test-order-1"));
+		assertTrue(csvContent.contains("AAPL"));
+		assertTrue(csvContent.contains("FILL"));
 	}
 }

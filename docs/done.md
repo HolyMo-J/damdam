@@ -29,3 +29,7 @@
   - 평일 장 시작 직후(09:05 KST) 자동 실행 (`TimeExitScheduler`, listen 프로필), `query` 프로필로 즉시 확인도 가능
   - 실제 계좌로 실행 확인: 보유 3종목 중 1종목은 정확한 경과일, 2종목은 30일 초과로 알림 정상 동작
   - FIFO 판단 로직과 거래일 계산은 가짜 데이터로 단위 테스트 (`PositionEntryResolverTest`, `TradingDayCalculatorTest`)
+- 매매 기록 CSV 저장 (`records` 패키지, `TradeRecordWriter`): 웹소켓으로 감지된 실제 체결(FILL, PARTIAL_FILL)만 `records/manual_trades.csv`에 한 줄씩 기록. 계좌 식별값 없음
+  - 항목: 시각, 주문ID, 종목, 매수매도구분, 이벤트, 체결수량, 평균체결가, 체결금액, 수수료, 세금, 통화, 주문유형, 상태
+  - 전략 신호나 청산 사유 등 아직 없는 개념의 컬럼은 만들지 않음. docs/records.md의 나머지 기록 종류(신호, 가상계좌, 실행상태)는 해당 기능이 생기는 단계에서 추가
+  - 가짜 체결 이벤트로 CSV 한 줄이 정확히 남는지 단위 테스트 확인

@@ -1,6 +1,7 @@
 package com.damdam.bot.orderevent;
 
 import com.damdam.bot.orders.OrderService;
+import com.damdam.bot.records.TradeRecordWriter;
 import com.damdam.bot.token.TokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,7 @@ public class OrderStreamClient {
 	private final TokenService tokenService;
 	private final OrderService orderService;
 	private final ObjectMapper objectMapper;
+	private final TradeRecordWriter tradeRecordWriter;
 
 	private volatile boolean running;
 	private volatile WebSocketSession currentSession;
@@ -42,10 +44,12 @@ public class OrderStreamClient {
 	private long accountSeq;
 	private int reconnectAttempts;
 
-	public OrderStreamClient(TokenService tokenService, OrderService orderService, ObjectMapper objectMapper) {
+	public OrderStreamClient(TokenService tokenService, OrderService orderService, ObjectMapper objectMapper,
+			TradeRecordWriter tradeRecordWriter) {
 		this.tokenService = tokenService;
 		this.orderService = orderService;
 		this.objectMapper = objectMapper;
+		this.tradeRecordWriter = tradeRecordWriter;
 	}
 
 	public void start(long accountSeq) {
@@ -69,7 +73,7 @@ public class OrderStreamClient {
 
 		WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
 		headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken());
-		var handler = new OrderEventWebSocketHandler(accountSeq, objectMapper, this::onConnected, this::onDisconnected);
+		var handler = new OrderEventWebSocketHandler(accountSeq, objectMapper, tradeRecordWriter, this::onConnected, this::onDisconnected);
 
 		webSocketClient.execute(handler, headers, ENDPOINT)
 			.whenComplete((session, error) -> {
