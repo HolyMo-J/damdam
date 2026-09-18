@@ -39,7 +39,6 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 		log.info("웹소켓 연결됨. 계좌 {} 주문 이벤트 구독을 선언합니다.", accountSeq);
 		var declare = List.of(new OrderSubscribeDeclare("personal:order", List.of(String.valueOf(accountSeq))));
 		session.sendMessage(new TextMessage(objectMapper.writeValueAsString(declare)));
-		onConnected.run();
 	}
 
 	@Override
@@ -58,6 +57,12 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 	private void handleAck(JsonNode node) {
 		SubscriptionAck ack = objectMapper.treeToValue(node, SubscriptionAck.class);
 		log.info("구독 확정: {}, 거부: {}", ack.subscribed(), ack.rejected());
+		// 구독이 실제로 확정된 뒤에야 재동기화와 PING을 시작한다. 그래야 재동기화 이후의 체결은 이벤트로 받는다
+		if (ack.subscribed() != null && !ack.subscribed().isEmpty()) {
+			onConnected.run();
+		} else {
+			log.warn("주문 이벤트 구독이 확정되지 않았습니다. 거부 사유: {}", ack.rejected());
+		}
 	}
 
 	private void handleOrderEvent(JsonNode node) {

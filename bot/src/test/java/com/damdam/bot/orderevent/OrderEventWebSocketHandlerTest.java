@@ -106,4 +106,26 @@ class OrderEventWebSocketHandlerTest {
 		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService, (key, message) -> {},
 			new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}));
 	}
+
+	private static final String ACK_JSON = """
+		{"type":"subscriptions","id":null,"subscribed":["personal:order:3"],"rejected":[]}
+		""";
+	private static final String REJECTED_ACK_JSON = """
+		{"type":"subscriptions","id":null,"subscribed":[],"rejected":[{"topic":"personal:order:3","reason":"denied"}]}
+		""";
+
+	// 연결 완료(재동기화와 PING 시작)는 웹소켓이 열린 시점이 아니라 구독이 확정된 시점이어야 한다
+	@Test
+	void connectionIsCompleteOnlyWhenTheSubscriptionIsConfirmed() throws Exception {
+		int[] connected = {0};
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, new ObjectMapper(),
+			new TradeRecordWriter("build/tmp/test-trades-noop.csv"), newUnreachableAtrOcoManagementService(),
+			() -> connected[0]++, () -> {});
+
+		handler.handleTextMessage(null, new TextMessage(REJECTED_ACK_JSON));
+		assertEquals(0, connected[0]);
+
+		handler.handleTextMessage(null, new TextMessage(ACK_JSON));
+		assertEquals(1, connected[0]);
+	}
 }

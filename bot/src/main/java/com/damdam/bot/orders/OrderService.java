@@ -38,7 +38,12 @@ public class OrderService {
 		return response == null ? List.of() : response.result().orders();
 	}
 
-	// 최근 lookbackDays 안의 체결 완료 주문을 시간순으로 반환한다 (시간 청산 판단용)
+	// 최근 lookbackDays 안의 종료된 주문을 종목 구분 없이 반환한다 (재동기화로 놓친 체결을 찾는 용도)
+	public List<Order> getRecentClosedOrders(long accountSeq, int lookbackDays) {
+		return getClosedOrders(accountSeq, null, lookbackDays);
+	}
+
+	// 최근 lookbackDays 안의 체결 완료 주문을 시간순으로 반환한다 (시간 청산 판단용). symbol이 null이면 전 종목
 	public List<Order> getClosedOrders(long accountSeq, String symbol, int lookbackDays) {
 		List<Order> orders = new ArrayList<>();
 		String cursor = null;
@@ -47,7 +52,7 @@ public class OrderService {
 		while (true) {
 			String uri = UriComponentsBuilder.fromPath("/api/v1/orders")
 				.queryParam("status", "CLOSED")
-				.queryParam("symbol", symbol)
+				.queryParamIfPresent("symbol", Optional.ofNullable(symbol))
 				.queryParam("from", from)
 				.queryParam("limit", 100)
 				.queryParamIfPresent("cursor", Optional.ofNullable(cursor))

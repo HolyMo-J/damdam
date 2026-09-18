@@ -4,6 +4,7 @@
 
 ## 확인 필요
 - 국내 OCO 호가 단위 자동 보정은 문서 예시 응답 기준으로 구현했고 실제 국내 종목 응답은 확인하지 못함. 실전 전환 후 첫 국내 OCO 등록 로그(`호가 단위 불일치로 거부돼 지정가를 보정해`)를 확인할 것. 특히 감시가(triggerPrice)도 호가 단위를 검증하는지는 문서에 없음. 그 경우 필드가 `first.triggerPrice`로 오고 보정 없이 실패 알림이 나감
+- 재동기화는 실제 재연결 상황(네트워크를 끊었다 붙이기)으로는 아직 확인하지 못함. 봇을 띄운 채 네트워크를 잠깐 끊고 로그의 `주문 재동기화 완료`를 확인할 것
 - 알림을 쓰려면 디스코드에서 웹훅을 만들어 `.env`에 `DAMDAM_DISCORD_WEBHOOK_URL`을 추가하고 봇을 다시 빌드(`./gradlew bootJar`)해서 재시작해야 함. 지금 떠 있는 봇은 옛 버전이라 정지 파일과 종료 요청 파일이 동작하지 않음
 - 사용자가 정해야 할 값 (백테스트 결과를 보기 전에 확정): 최소 거래 건수, 비용 반영 기대값, 최대 손실폭 한도의 정의와 값, 코스피200 대비 성과 기준. docs/strategy.md 판단 기준에 자리만 만들어 뒀고 숫자는 비어 있음
 - 실전 전환(.env에 DAMDAM_LIVE_ORDERS=true 추가) 전에 `bot/data/auto_sell_guard.json`을 직접 삭제해서 초기화할 것. 예전 모의 실행 기록이 남아 있을 수 있음
@@ -13,9 +14,8 @@
 - 저장소가 공개인지 확인. 종목 코드를 문서에서 일반화했지만 커밋 이력에는 남아 있음
 
 ## 다음 할 일 (실전 전환 전 안전장치 보강, 진행 순서대로)
-1. 웹소켓 재동기화: 시작과 재연결 직후(구독 확정 후) 실행, 관리 범위 안의 OCO 없는 보유 종목 등록, 끊긴 사이 체결을 CSV에 중복 없이 기록 (CSV에 filled_at 컬럼 추가)
-2. 토큰 파일 권한을 ACL 방식으로 교체
-3. OrderPlacementService 실주문 경로 테스트 (MockRestServiceServer)와 push마다 gradle test를 돌리는 GitHub Actions (gradlew 실행 권한 필요)
+1. 토큰 파일 권한을 ACL 방식으로 교체
+2. OrderPlacementService 실주문 경로 테스트 (MockRestServiceServer)와 push마다 gradle test를 돌리는 GitHub Actions (gradlew 실행 권한 필요)
 
 ## 다음 할 일 (2단계: 과열 급락 반등 전략 백테스트)
 - 권리락/배당락/액면분할 감지 로직 구현 (`adjusted=true`/`false` 비교, docs/strategy.md 참고. 조사는 끝났고 코드만 남음)

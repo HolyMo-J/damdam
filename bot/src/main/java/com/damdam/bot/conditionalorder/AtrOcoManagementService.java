@@ -66,6 +66,27 @@ public class AtrOcoManagementService {
 		}
 	}
 
+	// 재동기화용: OCO가 없거나 수량이 보유량과 다르면 등록/수정한다. 손댔으면 true
+	public boolean ensureOco(long accountSeq, String symbol) {
+		try {
+			Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
+			if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
+				return false;
+			}
+			Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
+			if (existing.isPresent()
+					&& new BigDecimal(existing.get().quantity()).compareTo(new BigDecimal(holding.get().quantity())) == 0) {
+				return false;
+			}
+			doSync(accountSeq, symbol);
+			return true;
+		} catch (Exception e) {
+			log.warn("[OCO 확인] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+			alertOcoProblem(symbol, "재동기화 중 OCO를 확인/등록하지 못했습니다: " + e.getMessage());
+			return false;
+		}
+	}
+
 	// 포지션이 0이 되면 남은 OCO를 정리한다
 	public void cancelIfOpen(long accountSeq, String symbol) {
 		try {

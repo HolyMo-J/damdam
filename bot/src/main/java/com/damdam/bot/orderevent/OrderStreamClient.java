@@ -2,7 +2,6 @@ package com.damdam.bot.orderevent;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
 import com.damdam.bot.notification.Notifier;
-import com.damdam.bot.orders.OrderService;
 import com.damdam.bot.records.TradeRecordWriter;
 import com.damdam.bot.token.TokenService;
 import org.slf4j.Logger;
@@ -17,6 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -36,9 +36,15 @@ public class OrderStreamClient {
 
 	private final StandardWebSocketClient webSocketClient = new StandardWebSocketClient();
 	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(OrderStreamClient::newDaemonThread);
+	// 재동기화는 REST 호출이 여러 번 필요해서 PING과 재연결 스케줄을 막지 않도록 별도 스레드에서 실행한다
+	private final ExecutorService resyncExecutor = Executors.newSingleThreadExecutor(runnable -> {
+		Thread thread = new Thread(runnable, "order-stream-resync");
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	private final TokenService tokenService;
-	private final OrderService orderService;
+	private final OrderResyncService orderResyncService;
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
@@ -50,10 +56,10 @@ public class OrderStreamClient {
 	private long accountSeq;
 	private int reconnectAttempts;
 
-	public OrderStreamClient(TokenService tokenService, OrderService orderService, ObjectMapper objectMapper,
+	public OrderStreamClient(TokenService tokenService, OrderResyncService orderResyncService, ObjectMapper objectMapper,
 			TradeRecordWriter tradeRecordWriter, AtrOcoManagementService atrOcoManagementService, Notifier notifier) {
 		this.tokenService = tokenService;
-		this.orderService = orderService;
+		this.orderResyncService = orderResyncService;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
@@ -69,6 +75,7 @@ public class OrderStreamClient {
 	public void stop() {
 		running = false;
 		scheduler.shutdownNow();
+		resyncExecutor.shutdownNow();
 		closeQuietly(currentSession);
 	}
 
@@ -95,9 +102,15 @@ public class OrderStreamClient {
 			});
 	}
 
+	// 구독이 확정된 직후 호출된다 (봇 시작 때 첫 연결과 이후 모든 재연결 포함)
 	private void onConnected() {
 		reconnectAttempts = 0;
+		if (pingTask != null) {
+			pingTask.cancel(false);
+		}
 		pingTask = scheduler.scheduleAtFixedRate(this::sendPing, PING_INTERVAL_SECONDS, PING_INTERVAL_SECONDS, TimeUnit.SECONDS);
+		// 끊긴 구간의 이벤트는 다시 전달되지 않으므로, 구독이 확정된 뒤에 REST로 상태를 다시 맞춘다
+		resyncExecutor.execute(() -> orderResyncService.resync(accountSeq));
 	}
 
 	private void onDisconnected() {
@@ -107,7 +120,6 @@ public class OrderStreamClient {
 		if (!running) {
 			return;
 		}
-		resync();
 		scheduleReconnect();
 	}
 
@@ -120,16 +132,6 @@ public class OrderStreamClient {
 			session.sendMessage(new TextMessage("PING"));
 		} catch (IOException e) {
 			log.warn("PING 전송 실패: {}", e.getMessage());
-		}
-	}
-
-	// 끊긴 구간의 이벤트는 다시 전달되지 않으므로, 진행중 주문 목록으로 상태를 다시 맞춘다
-	private void resync() {
-		try {
-			var openOrders = orderService.getOpenOrders(accountSeq);
-			log.info("주문 목록 재동기화: 진행중 주문 {}건", openOrders.size());
-		} catch (Exception e) {
-			log.warn("주문 목록 재동기화 실패: {}", e.getMessage());
 		}
 	}
 

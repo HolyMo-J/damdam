@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
@@ -151,6 +152,37 @@ class ConditionalOrderServiceLiveTest {
 
 		assertEquals(ConditionalOrderPlacementResult.Status.PLACED, result.status());
 		assertEquals("co-2", result.conditionalOrderId());
+		server.verify();
+	}
+
+	private static String listBody(String... orders) {
+		return "{\"result\":{\"conditionalOrders\":[" + String.join(",", orders) + "],\"nextCursor\":null,\"hasNext\":false}}";
+	}
+
+	private static String orderJson(String id, String type, String quantity) {
+		return "{\"conditionalOrderId\":\"" + id + "\",\"type\":\"" + type + "\",\"status\":\"WATCHING\",\"symbol\":\"005930\","
+			+ "\"quantity\":\"" + quantity + "\"}";
+	}
+
+	// 토스 앱에서 직접 만든 단일 조건주문을 봇이 OCO로 착각해 수정(덮어쓰기)하면 안 된다
+	@Test
+	void findsOnlyOcoOrdersAndIgnoresSingleOnesMadeInTheApp() {
+		server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/api/v1/conditional-orders?status=OPEN&symbol=005930")))
+			.andRespond(withSuccess(listBody(orderJson("single-1", "SINGLE", "1"), orderJson("oco-1", "OCO", "2")),
+				MediaType.APPLICATION_JSON));
+
+		var found = service.findOpenConditionalOrder(3L, "005930");
+
+		assertEquals("oco-1", found.orElseThrow().conditionalOrderId());
+		server.verify();
+	}
+
+	@Test
+	void returnsNothingWhenOnlySingleOrdersExist() {
+		server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/api/v1/conditional-orders?status=OPEN")))
+			.andRespond(withSuccess(listBody(orderJson("single-1", "SINGLE", "1")), MediaType.APPLICATION_JSON));
+
+		assertTrue(service.findOpenConditionalOrder(3L, "005930").isEmpty());
 		server.verify();
 	}
 }

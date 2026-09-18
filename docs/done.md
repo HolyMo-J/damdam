@@ -36,7 +36,7 @@
 
 ### 매매 기록 CSV
 - 매매 기록 CSV 저장 (`records` 패키지, `TradeRecordWriter`): 웹소켓으로 감지된 실제 체결(FILL, PARTIAL_FILL)만 `records/manual_trades.csv`에 한 줄씩 기록. 계좌 식별값 없음
-  - 항목: 시각, 주문ID, 종목, 매수매도구분, 이벤트, 체결수량, 평균체결가, 체결금액, 수수료, 세금, 통화, 주문유형, 상태
+  - 항목: 시각, 주문ID, 종목, 매수매도구분, 이벤트, 체결수량, 평균체결가, 체결금액, 수수료, 세금, 통화, 주문유형, 상태, 체결시각(filled_at), 출처(source: stream 또는 resync). 뒤의 두 컬럼은 재동기화 도입 때 추가했고 옛 파일은 처음 기록할 때 자동으로 옮김
   - 전략 신호나 청산 사유 등 아직 없는 개념의 컬럼은 만들지 않음. docs/records.md의 나머지 기록 종류(신호, 가상계좌, 실행상태)는 해당 기능이 생기는 단계에서 추가
   - 가짜 체결 이벤트로 CSV 한 줄이 정확히 남는지 단위 테스트 확인
 
@@ -81,6 +81,11 @@
 - `AutoSellGuard`를 실패 시 닫히는 방식으로 변경: 상태 파일이 있는데 못 읽으면 정지 상태, 저장에 실패하면 저장될 때까지 주문 차단, 임시 파일 후 원자적 교체. 하루 자동 매도 횟수도 파일에 저장해 재시작해도 유지. 단위 테스트 11개 (`AutoSellGuardTest`)
 - 시간 청산 매도 접수 직후 OCO를 취소하던 것을 매도 체결 확인 후 취소로 변경. 웹소켓 SELL FILL에서만 정리하고 PARTIAL_FILL에는 반응하지 않음. Mockito 단위 테스트 6개 (`AtrOcoManagementServiceTest`)
 - 국내 OCO 호가 단위 자동 보정 (`TickSizeCorrection`, `ConditionalOrderService`): 400 응답의 `data.field`로 어느 지정가인지 판별해 익절(`first.orderPrice`)은 `nearestPrices`의 위쪽, 손절(`second.orderPrice`)은 아래쪽으로 옮겨 다시 보냄. 등록과 수정 모두 적용. 안전 제한: 한 호가를 넘는 이동, 방향이 반대인 값, 모르는 필드, 파싱 불가 응답은 보정하지 않고 실패로 처리해 알림. 재시도는 최대 2회, 재시도마다 새 clientOrderId. 감시가(triggerPrice)는 건드리지 않음. 실제 API 없이 `MockRestServiceServer`로 요청 본문 검증 (`TickSizeCorrectionTest`, `ConditionalOrderServiceLiveTest`). 실제 국내 종목 응답으로는 아직 확인하지 못함
+- 웹소켓 재동기화 (`OrderResyncService`): 봇 시작 직후와 모든 재연결 직후, 구독이 확정(ack)된 뒤에 REST로 상태를 다시 맞춤. (1) 최근 7일 진행중/종료 주문의 체결을 CSV에 기록 (2) 끊긴 사이 완전히 팔린 종목의 남은 OCO 정리 (3) 관리 범위 안의 보유 종목 중 OCO가 없거나 수량이 어긋난 것을 등록/수정, 관리 범위 밖의 기존 보유 종목은 건드리지 않음 (`ManagedPositions`). 무언가 반영했으면 알림
+  - 중복 방지: `TradeRecordWriter`가 (주문ID, 누적 체결수량)을 키로 삼아 웹소켓과 재동기화에서 같은 체결이 두 번 기록되지 않게 함. 수량 표기 차이("10"과 "10.000")는 숫자로 정규화해 비교, 재시작 후에도 파일에서 키를 다시 읽음
+  - 기존에는 재연결 전에 로그만 남기고 봇 시작 때는 아예 호출되지 않았으며, 재연결이 끝나기 전에 실행돼 그 사이 이벤트를 놓칠 수 있었음
+  - 조건주문 조회는 토스 앱에서 직접 만든 단일 조건주문도 돌려주므로 OCO 타입만 봇의 관리 대상으로 삼도록 수정 (앱에서 건 조건주문을 봇이 덮어쓰지 않게)
+  - 테스트: `TradeRecordWriterTest`, `OrderResyncServiceTest`, 구독 확정 시점 테스트, OCO 타입 필터 테스트
 - 디스코드 웹훅 알림 (`notification` 패키지): 안전장치 발동(연속 손실 정지, 하루 한도, 상태 파일 문제), OCO 등록/수정/취소 실패, 웹소켓 재연결 연속 5회 실패, 토스 API 403(공용 RestClient 인터셉터 한 곳), 봇 시작과 종료. 웹훅 주소는 `.env`에서만 읽고 디스코드 웹훅 형식만 허용, 로그에는 예외 메시지 대신 상태 코드만 남김. 같은 사건은 10분에 한 번만 전송. `MockRestServiceServer`로 요청 본문, 스로틀, 실패 시 로그에 주소 미노출 검증 (`DiscordNotifierTest`)
 - 정지 파일 (`control` 패키지, `TradingHaltSwitch`): `bot/data/STOP`이 있으면 자동 매도와 OCO 등록/수정 중단, 상태가 바뀔 때만 알림. OCO 취소는 막지 않음. 존재 여부를 판단할 수 없으면 정지로 취급. `ControlFileWatcher`(listen 프로필)가 5초마다 확인
 - 정상 종료 요청 파일: Windows에서 `Stop-Process`는 종료 훅을 실행하지 못해 종료 알림이 안 나가므로, `stop-listen.ps1`이 `bot/data/shutdown.request`를 만들어 봇이 스스로 정상 종료하게 하고 15초 안에 안 끝나면 강제 종료

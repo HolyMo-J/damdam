@@ -32,12 +32,13 @@ public class ConditionalOrderService {
 		this.liveMode = liveMode;
 	}
 
-	// 해당 종목의 진행 중(OPEN) 조건주문을 찾는다. 토스는 종목당 조건주문을 1개만 허용한다
+	// 해당 종목의 진행 중(OPEN) OCO 조건주문을 찾는다. 토스는 종목당 OCO/OTO를 1개만 허용한다.
+	// 이 API는 토스 앱에서 직접 만든 조건주문(SINGLE 등)도 함께 돌려주므로, 타입이 OCO인 것만 봇이 관리하는 대상으로 본다
 	public Optional<ConditionalOrderDetail> findOpenConditionalOrder(long accountSeq, String symbol) {
 		String uri = UriComponentsBuilder.fromPath("/api/v1/conditional-orders")
 			.queryParam("status", "OPEN")
 			.queryParam("symbol", symbol)
-			.queryParam("limit", 1)
+			.queryParam("limit", 100)
 			.toUriString();
 
 		ConditionalOrdersListResponse response = restClient.get()
@@ -47,10 +48,12 @@ public class ConditionalOrderService {
 			.retrieve()
 			.body(ConditionalOrdersListResponse.class);
 
-		if (response == null || response.result().conditionalOrders().isEmpty()) {
+		if (response == null) {
 			return Optional.empty();
 		}
-		return Optional.of(response.result().conditionalOrders().get(0));
+		return response.result().conditionalOrders().stream()
+			.filter(order -> "OCO".equals(order.type()))
+			.findFirst();
 	}
 
 	// 익절/손절 OCO를 새로 등록한다
