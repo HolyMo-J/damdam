@@ -47,3 +47,11 @@
   - `AverageTrueRange`: 진짜 변동폭(True Range)의 단순 평균으로 14거래일 ATR 계산 (`AtrService`). 순수 계산 로직이라 API 호출 없음
   - `AtrQueryRunner`(`query` 프로필): 보유 종목별로 현재가, 14일 ATR, 익절/손절 기준가를 로그로 출력. 실제 계좌로 실행해 SLDP, SPCX, IRE 모두 합리적인 값 확인 완료
   - 조건주문 OCO 등록(`POST /api/v1/conditional-orders`)은 실제 돈이 움직이는 코드라 사용자 별도 허락 후 다음 작업으로 진행
+- 조건주문 OCO 등록/수정/취소 (`conditionalorder` 패키지): ATR 익절/손절 가격 계산과 API 클라이언트. 아직 매수 체결에 자동으로 연결하지는 않음
+  - `AtrOcoPricing`: 체결가 ± ATR로 익절/손절 감시가 계산. KR은 정수로, US는 공식 문서에 명시된 $1 기준 소수 자리수로 맞춤. 손절 지정가는 확실한 체결을 위해 감시가보다 한 스텝(KR 1원, US 0.0001~0.01) 낮게 건다
+    - 호가 단위(tick size) 전체 구간표는 토스 공식 문서에 없어서(예시만 있음) 추측으로 보정하지 않음. 실제 호가 단위와 안 맞으면 API가 400으로 거부하며 올바른 tickSize/nearestPrices를 알려주므로, 그 로그를 보고 필요하면 손으로 조정
+  - `ConditionalOrderService`: `POST /api/v1/conditional-orders`(등록), `POST .../modify`(수정, 종목당 1개 제한이라 추가 매수 시 새로 만들지 않고 기존 걸 수정), `DELETE .../{id}`(취소), `GET /api/v1/conditional-orders`(종목별 진행 중인 조건주문 조회)
+  - 시간 청산 자동 매도와 동일하게 `damdam.orders.live-mode`로 실전/모의 전환. 기본값은 모의 실행
+  - 개발 세션 중에는 CLAUDE.md 규칙에 따라 등록/수정/취소 API를 직접 호출하지 않음. 모의 실행(가짜 RestClient로 실제 API 미호출 확인) 단위 테스트와 가격 계산 단위 테스트로만 검증 (`ConditionalOrderServiceTest`, `AtrOcoPricingTest`)
+  - 조회(GET)는 실제 계좌로 실행해 정상 동작 확인 (`ConditionalOrderQueryRunner`, `query` 프로필)
+  - 매수 체결 감지(웹소켓) 시 자동으로 등록/수정하는 연결은 아직 안 함. 다음 작업으로 남음
