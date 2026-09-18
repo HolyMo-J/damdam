@@ -1,5 +1,6 @@
 package com.damdam.bot.liquidation;
 
+import com.damdam.bot.notification.Notifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +28,7 @@ class AutoSellGuard {
 	private final int maxConsecutiveLosses;
 	private final Path stateFilePath;
 	private final Clock clock;
+	private final Notifier notifier;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	// 마지막으로 저장에 실패한 상태. 값이 있으면 파일이 최신이 아니므로 저장에 성공하기 전까지 주문을 막는다
@@ -36,21 +38,24 @@ class AutoSellGuard {
 	AutoSellGuard(
 			@Value("${damdam.orders.max-daily-count}") int maxDailyCount,
 			@Value("${damdam.orders.max-consecutive-losses}") int maxConsecutiveLosses,
-			@Value("${damdam.orders.guard-state-path}") String stateFilePath) {
-		this(maxDailyCount, maxConsecutiveLosses, stateFilePath, Clock.systemDefaultZone());
+			@Value("${damdam.orders.guard-state-path}") String stateFilePath,
+			Notifier notifier) {
+		this(maxDailyCount, maxConsecutiveLosses, stateFilePath, Clock.systemDefaultZone(), notifier);
 	}
 
-	AutoSellGuard(int maxDailyCount, int maxConsecutiveLosses, String stateFilePath, Clock clock) {
+	AutoSellGuard(int maxDailyCount, int maxConsecutiveLosses, String stateFilePath, Clock clock, Notifier notifier) {
 		this.maxDailyCount = maxDailyCount;
 		this.maxConsecutiveLosses = maxConsecutiveLosses;
 		this.stateFilePath = Path.of(stateFilePath);
 		this.clock = clock;
+		this.notifier = notifier;
 	}
 
 	synchronized boolean canPlaceAutoSell(String symbol) {
 		if (unsavedState != null) {
 			if (!writeState(unsavedState)) {
 				log.warn("[안전장치] 상태 파일에 저장하지 못한 상태라 안전을 위해 {} 자동 매도를 건너뜁니다.", symbol);
+				notifier.send("guard-unsaved", "[담담] 안전장치 상태를 파일에 저장하지 못해 자동 매도를 막았습니다. 디스크와 bot/data 폴더를 확인하세요.");
 				return false;
 			}
 			unsavedState = null;
@@ -59,10 +64,13 @@ class AutoSellGuard {
 		if (state.paused()) {
 			log.warn("[안전장치] 자동 매도가 정지된 상태입니다(연속 손실 {}회 또는 상태 파일 읽기 실패). {}는 건너뜁니다. "
 				+ "검토 후 재개하려면 bot/data/auto_sell_guard.json을 확인하세요.", state.consecutiveLosses(), symbol);
+			notifier.send("guard-paused", "[담담] 안전장치로 자동 매도가 정지된 상태입니다 (연속 손실 " + state.consecutiveLosses()
+				+ "회 또는 상태 파일 문제). 검토 후 bot/data/auto_sell_guard.json을 확인하세요.");
 			return false;
 		}
 		if (state.dailyCountOn(today()) >= maxDailyCount) {
 			log.warn("[안전장치] 오늘 자동 매도 횟수 한도({}회)에 도달해 {} 자동 매도를 건너뜁니다.", maxDailyCount, symbol);
+			notifier.send("guard-daily-limit", "[담담] 오늘 자동 매도 횟수 한도(" + maxDailyCount + "회)에 도달해 자동 매도를 건너뜁니다.");
 			return false;
 		}
 		return true;
@@ -83,6 +91,7 @@ class AutoSellGuard {
 		}
 		if (paused && !state.paused()) {
 			log.warn("[안전장치] 연속 손실 {}회에 도달해 자동 매도를 정지합니다. 전략 재검토가 필요합니다.", losses);
+			notifier.send("guard-paused-now", "[담담] 연속 손실 " + losses + "회에 도달해 자동 매도를 정지했습니다. 전략 재검토가 필요합니다.");
 		}
 	}
 
@@ -97,6 +106,7 @@ class AutoSellGuard {
 		try {
 			return objectMapper.readValue(stateFilePath.toFile(), GuardState.class);
 		} catch (JacksonException e) {
+			notifier.send("guard-unreadable", "[담담] 안전장치 상태 파일을 읽지 못해 자동 매도를 정지 상태로 취급합니다. bot/data/auto_sell_guard.json을 확인하세요.");
 			log.error("안전장치 상태 파일을 읽지 못해 자동 매도를 정지 상태로 취급합니다. 파일을 확인하거나 지워서 초기화하세요. 원인: {}",
 				e.getOriginalMessage());
 			return GuardState.unreadable();

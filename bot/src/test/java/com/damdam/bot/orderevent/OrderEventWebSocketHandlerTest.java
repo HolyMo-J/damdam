@@ -3,6 +3,7 @@ package com.damdam.bot.orderevent;
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
 import com.damdam.bot.conditionalorder.ConditionalOrderService;
 import com.damdam.bot.config.TossApiProperties;
+import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingsService;
 import com.damdam.bot.market.AtrService;
 import com.damdam.bot.market.MarketDataService;
@@ -102,6 +103,7 @@ class OrderEventWebSocketHandlerTest {
 		HoldingsService holdingsService = new HoldingsService(restClient, tokenService);
 		AtrService atrService = new AtrService(new MarketDataService(restClient, tokenService));
 		ConditionalOrderService conditionalOrderService = new ConditionalOrderService(restClient, tokenService, false);
-		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService);
+		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService, (key, message) -> {},
+			new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}));
 	}
 }

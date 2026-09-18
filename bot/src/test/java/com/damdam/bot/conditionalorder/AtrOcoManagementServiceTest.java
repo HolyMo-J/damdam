@@ -1,16 +1,24 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsOverview;
 import com.damdam.bot.holdings.HoldingsService;
 import com.damdam.bot.market.AtrService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -30,13 +38,19 @@ class AtrOcoManagementServiceTest {
 	private AtrService atrService;
 	private ConditionalOrderService conditionalOrderService;
 	private AtrOcoManagementService service;
+	private final List<String> alerts = new ArrayList<>();
 
 	@BeforeEach
 	void setUp() {
 		holdingsService = mock(HoldingsService.class);
 		atrService = mock(AtrService.class);
 		conditionalOrderService = mock(ConditionalOrderService.class);
-		service = new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService);
+		service = newService(new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}));
+	}
+
+	private AtrOcoManagementService newService(TradingHaltSwitch haltSwitch) {
+		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService,
+			(key, message) -> alerts.add(key), haltSwitch);
 	}
 
 	private static HoldingItem holding(String quantity) {
@@ -55,6 +69,7 @@ class AtrOcoManagementServiceTest {
 	void cancelsLeftoverOcoWhenPositionIsFullySold() {
 		givenHoldings();
 		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.of(openOco()));
+		when(conditionalOrderService.cancelConditionalOrder(ACCOUNT, "oco-1")).thenReturn(true);
 
 		service.syncAfterSellFill(ACCOUNT, SYMBOL);
 
@@ -65,6 +80,7 @@ class AtrOcoManagementServiceTest {
 	void treatsZeroQuantityHoldingAsSold() {
 		givenHoldings(holding("0"));
 		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.of(openOco()));
+		when(conditionalOrderService.cancelConditionalOrder(ACCOUNT, "oco-1")).thenReturn(true);
 
 		service.syncAfterSellFill(ACCOUNT, SYMBOL);
 
@@ -115,5 +131,55 @@ class AtrOcoManagementServiceTest {
 		service.syncAfterSellFill(ACCOUNT, SYMBOL);
 
 		verify(conditionalOrderService, never()).cancelConditionalOrder(eq(ACCOUNT), any());
+	}
+
+	@Test
+	void alertsWhenRegisteringTheOcoFails() {
+		givenHoldings(holding("5"));
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
+		when(atrService.getAtr14(SYMBOL)).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.FAILED, null, "400 호가 단위 불일치"));
+
+		service.syncAfterBuyFill(ACCOUNT, SYMBOL);
+
+		assertEquals(List.of("oco-" + SYMBOL), alerts);
+	}
+
+	@Test
+	void doesNotAlertWhenRegistrationIsSimulated() {
+		givenHoldings(holding("5"));
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
+		when(atrService.getAtr14(SYMBOL)).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.SIMULATED, null, null));
+
+		service.syncAfterBuyFill(ACCOUNT, SYMBOL);
+
+		assertTrue(alerts.isEmpty());
+	}
+
+	// 정지 파일이 있으면 OCO를 등록/수정하지 않고 알린다. 하지만 남은 OCO를 취소하는 것은 막지 않는다
+	@Test
+	void haltFileStopsRegistrationButNotCancellation(@TempDir Path tempDir) throws IOException {
+		Path haltFile = tempDir.resolve("STOP");
+		Files.writeString(haltFile, "");
+		AtrOcoManagementService halted = newService(new TradingHaltSwitch(haltFile.toString(), (key, message) -> {}));
+		givenHoldings(holding("5"));
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
+
+		halted.syncAfterBuyFill(ACCOUNT, SYMBOL);
+
+		verify(conditionalOrderService, never()).createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString());
+		assertEquals(List.of("oco-" + SYMBOL), alerts);
+
+		givenHoldings();
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.of(openOco()));
+		when(conditionalOrderService.cancelConditionalOrder(ACCOUNT, "oco-1")).thenReturn(true);
+		halted.syncAfterSellFill(ACCOUNT, SYMBOL);
+		verify(conditionalOrderService).cancelConditionalOrder(ACCOUNT, "oco-1");
 	}
 }

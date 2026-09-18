@@ -80,6 +80,9 @@
 - 모의 실행 결과는 안전장치(`AutoSellGuard`)에 기록하지 않음: 실제로 팔리지 않은 손실이 쌓여 실전 전환 때 이미 정지 상태가 되는 문제 수정
 - `AutoSellGuard`를 실패 시 닫히는 방식으로 변경: 상태 파일이 있는데 못 읽으면 정지 상태, 저장에 실패하면 저장될 때까지 주문 차단, 임시 파일 후 원자적 교체. 하루 자동 매도 횟수도 파일에 저장해 재시작해도 유지. 단위 테스트 11개 (`AutoSellGuardTest`)
 - 시간 청산 매도 접수 직후 OCO를 취소하던 것을 매도 체결 확인 후 취소로 변경. 웹소켓 SELL FILL에서만 정리하고 PARTIAL_FILL에는 반응하지 않음. Mockito 단위 테스트 6개 (`AtrOcoManagementServiceTest`)
+- 디스코드 웹훅 알림 (`notification` 패키지): 안전장치 발동(연속 손실 정지, 하루 한도, 상태 파일 문제), OCO 등록/수정/취소 실패, 웹소켓 재연결 연속 5회 실패, 토스 API 403(공용 RestClient 인터셉터 한 곳), 봇 시작과 종료. 웹훅 주소는 `.env`에서만 읽고 디스코드 웹훅 형식만 허용, 로그에는 예외 메시지 대신 상태 코드만 남김. 같은 사건은 10분에 한 번만 전송. `MockRestServiceServer`로 요청 본문, 스로틀, 실패 시 로그에 주소 미노출 검증 (`DiscordNotifierTest`)
+- 정지 파일 (`control` 패키지, `TradingHaltSwitch`): `bot/data/STOP`이 있으면 자동 매도와 OCO 등록/수정 중단, 상태가 바뀔 때만 알림. OCO 취소는 막지 않음. 존재 여부를 판단할 수 없으면 정지로 취급. `ControlFileWatcher`(listen 프로필)가 5초마다 확인
+- 정상 종료 요청 파일: Windows에서 `Stop-Process`는 종료 훅을 실행하지 못해 종료 알림이 안 나가므로, `stop-listen.ps1`이 `bot/data/shutdown.request`를 만들어 봇이 스스로 정상 종료하게 하고 15초 안에 안 끝나면 강제 종료
 - 문서 정리: README(ATR OCO 문구, 구조 트리), CLAUDE.md(현재 단계, 커밋 메시지 한글 규칙), done.md의 실제 종목 코드 일반화, docs/strategy.md(생존 편향 한계, 판단 기준 자리), docs/troubleshooting.md 신설
 - `.env` 없는 깨끗한 복제본에서 `./gradlew test` 전체 통과 확인
 

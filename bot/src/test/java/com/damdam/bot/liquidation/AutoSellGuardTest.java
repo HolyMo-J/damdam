@@ -9,7 +9,10 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,13 +24,16 @@ class AutoSellGuardTest {
 		return Clock.fixed(Instant.parse(isoDate + "T03:00:00Z"), ZONE);
 	}
 
-	private static AutoSellGuard guard(int maxDaily, int maxLosses, Path file, Clock clock) {
-		return new AutoSellGuard(maxDaily, maxLosses, file.toString(), clock);
+	// 보낸 알림을 모아 두는 가짜 Notifier (실제 디스코드로는 아무것도 나가지 않는다)
+	private final List<String> alerts = new ArrayList<>();
+
+	private AutoSellGuard guard(int maxDaily, int maxLosses, Path file, Clock clock) {
+		return new AutoSellGuard(maxDaily, maxLosses, file.toString(), clock, (key, message) -> alerts.add(key));
 	}
 
 	@Test
 	void blocksAfterDailyCountLimit(@TempDir Path tempDir) {
-		AutoSellGuard guard = new AutoSellGuard(2, 10, tempDir.resolve("state.json").toString());
+		AutoSellGuard guard = guard(2, 10, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
 		assertTrue(guard.canPlaceAutoSell("AAA"));
 		guard.recordAttempt(false);
@@ -39,7 +45,7 @@ class AutoSellGuardTest {
 
 	@Test
 	void pausesAfterConsecutiveLosses(@TempDir Path tempDir) {
-		AutoSellGuard guard = new AutoSellGuard(100, 3, tempDir.resolve("state.json").toString());
+		AutoSellGuard guard = guard(100, 3, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
 		guard.recordAttempt(true);
 		guard.recordAttempt(true);
@@ -51,7 +57,7 @@ class AutoSellGuardTest {
 
 	@Test
 	void aWinResetsConsecutiveLosses(@TempDir Path tempDir) {
-		AutoSellGuard guard = new AutoSellGuard(100, 2, tempDir.resolve("state.json").toString());
+		AutoSellGuard guard = guard(100, 2, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
 		guard.recordAttempt(true);
 		guard.recordAttempt(false);
@@ -149,5 +155,37 @@ class AutoSellGuardTest {
 		guard.recordAttempt(false);
 
 		assertFalse(guard.canPlaceAutoSell("AAA"));
+	}
+
+	@Test
+	void alertsWhenTheConsecutiveLossLimitPausesAutoSell(@TempDir Path tempDir) {
+		AutoSellGuard guard = guard(100, 2, tempDir.resolve("state.json"), dayClock("2026-09-21"));
+
+		guard.recordAttempt(true);
+		assertTrue(alerts.isEmpty());
+		guard.recordAttempt(true);
+
+		assertEquals(List.of("guard-paused-now"), alerts);
+	}
+
+	@Test
+	void alertsWhenTheStateFileIsUnreadable(@TempDir Path tempDir) throws IOException {
+		Path file = tempDir.resolve("state.json");
+		Files.writeString(file, "{ 깨진 파일");
+
+		guard(10, 3, file, dayClock("2026-09-21")).canPlaceAutoSell("AAA");
+
+		assertTrue(alerts.contains("guard-unreadable"));
+		assertTrue(alerts.contains("guard-paused"));
+	}
+
+	@Test
+	void alertsWhenTheDailyLimitBlocksAnOrder(@TempDir Path tempDir) {
+		AutoSellGuard guard = guard(1, 10, tempDir.resolve("state.json"), dayClock("2026-09-21"));
+		guard.recordAttempt(false);
+
+		guard.canPlaceAutoSell("AAA");
+
+		assertEquals(List.of("guard-daily-limit"), alerts);
 	}
 }

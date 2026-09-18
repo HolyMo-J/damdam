@@ -1,6 +1,7 @@
 package com.damdam.bot.orderevent;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
+import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.orders.OrderService;
 import com.damdam.bot.records.TradeRecordWriter;
 import com.damdam.bot.token.TokenService;
@@ -30,6 +31,8 @@ public class OrderStreamClient {
 	private static final URI ENDPOINT = URI.create("wss://openapi-ws.tossinvest.com/ws/v1");
 	private static final long MAX_BACKOFF_SECONDS = 30;
 	private static final long PING_INTERVAL_SECONDS = 60;
+	// 연속 재연결 실패가 이 횟수에 도달하면 알린다 (일시적 끊김은 조용히 복구되게 두고, 계속 안 붙을 때만)
+	private static final int ALERT_AFTER_FAILED_ATTEMPTS = 5;
 
 	private final StandardWebSocketClient webSocketClient = new StandardWebSocketClient();
 	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(OrderStreamClient::newDaemonThread);
@@ -39,6 +42,7 @@ public class OrderStreamClient {
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
+	private final Notifier notifier;
 
 	private volatile boolean running;
 	private volatile WebSocketSession currentSession;
@@ -47,12 +51,13 @@ public class OrderStreamClient {
 	private int reconnectAttempts;
 
 	public OrderStreamClient(TokenService tokenService, OrderService orderService, ObjectMapper objectMapper,
-			TradeRecordWriter tradeRecordWriter, AtrOcoManagementService atrOcoManagementService) {
+			TradeRecordWriter tradeRecordWriter, AtrOcoManagementService atrOcoManagementService, Notifier notifier) {
 		this.tokenService = tokenService;
 		this.orderService = orderService;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
+		this.notifier = notifier;
 	}
 
 	public void start(long accountSeq) {
@@ -134,6 +139,10 @@ public class OrderStreamClient {
 		}
 		long delaySeconds = Math.min(1L << Math.min(reconnectAttempts, 5), MAX_BACKOFF_SECONDS);
 		reconnectAttempts++;
+		if (reconnectAttempts >= ALERT_AFTER_FAILED_ATTEMPTS) {
+			notifier.send("ws-reconnect", "[담담] 주문 이벤트 웹소켓 재연결이 연속 " + reconnectAttempts
+				+ "회 실패했습니다. 이 동안 체결 감지와 OCO 자동 등록이 멈춰 있습니다. 네트워크, 허용 IP, 토큰을 확인하세요.");
+		}
 		long jitterMillis = ThreadLocalRandom.current().nextLong(0, 500);
 		log.info("{}초 뒤 재연결합니다.", delaySeconds);
 		scheduler.schedule(this::connect, delaySeconds * 1000 + jitterMillis, TimeUnit.MILLISECONDS);

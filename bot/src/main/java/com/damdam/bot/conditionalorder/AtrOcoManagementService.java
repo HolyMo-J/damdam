@@ -1,8 +1,10 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsService;
 import com.damdam.bot.market.AtrService;
+import com.damdam.bot.notification.Notifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,12 +25,16 @@ public class AtrOcoManagementService {
 	private final HoldingsService holdingsService;
 	private final AtrService atrService;
 	private final ConditionalOrderService conditionalOrderService;
+	private final Notifier notifier;
+	private final TradingHaltSwitch haltSwitch;
 
 	public AtrOcoManagementService(HoldingsService holdingsService, AtrService atrService,
-			ConditionalOrderService conditionalOrderService) {
+			ConditionalOrderService conditionalOrderService, Notifier notifier, TradingHaltSwitch haltSwitch) {
 		this.holdingsService = holdingsService;
 		this.atrService = atrService;
 		this.conditionalOrderService = conditionalOrderService;
+		this.notifier = notifier;
+		this.haltSwitch = haltSwitch;
 	}
 
 	// 매수 체결(신규/추가매수) 이벤트를 받으면 현재 평단가와 보유 수량으로 OCO를 최신화한다
@@ -37,6 +43,7 @@ public class AtrOcoManagementService {
 			doSync(accountSeq, symbol);
 		} catch (Exception e) {
 			log.warn("[OCO 갱신] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+			alertOcoProblem(symbol, "OCO 등록/수정 중 오류: " + e.getMessage());
 		}
 	}
 
@@ -55,20 +62,30 @@ public class AtrOcoManagementService {
 			}
 		} catch (Exception e) {
 			log.warn("[OCO 정리] {} 매도 체결 후 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+			alertOcoProblem(symbol, "매도 체결 후 OCO 정리 중 오류: " + e.getMessage());
 		}
 	}
 
 	// 포지션이 0이 되면 남은 OCO를 정리한다
 	public void cancelIfOpen(long accountSeq, String symbol) {
 		try {
-			conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol)
-				.ifPresent(detail -> conditionalOrderService.cancelConditionalOrder(accountSeq, detail.conditionalOrderId()));
+			conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).ifPresent(detail -> {
+				if (!conditionalOrderService.cancelConditionalOrder(accountSeq, detail.conditionalOrderId())) {
+					alertOcoProblem(symbol, "남은 OCO를 취소하지 못했습니다");
+				}
+			});
 		} catch (Exception e) {
 			log.warn("[OCO 정리] {} 처리 중 오류: {}", symbol, e.getMessage());
+			alertOcoProblem(symbol, "남은 OCO를 정리하는 중 오류가 났습니다: " + e.getMessage());
 		}
 	}
 
 	private void doSync(long accountSeq, String symbol) {
+		if (haltSwitch.isHalted()) {
+			log.warn("[OCO 갱신] 정지 파일이 있어 {} OCO 등록/수정을 건너뜁니다.", symbol);
+			alertOcoProblem(symbol, "정지 파일 때문에 OCO를 등록/수정하지 않았습니다 (이 종목은 손절 보호가 없거나 실제 보유와 다를 수 있음)");
+			return;
+		}
 		Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
 		if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
 			log.warn("[OCO 갱신] {} 보유 수량이 없어 건너뜁니다.", symbol);
@@ -82,14 +99,27 @@ public class AtrOcoManagementService {
 		String expireDate = LocalDate.now().plusDays(EXPIRE_DAYS).toString();
 
 		Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
+		ConditionalOrderPlacementResult result;
 		if (existing.isPresent()) {
-			conditionalOrderService.modifyAtrOco(accountSeq, existing.get().conditionalOrderId(), item.quantity(), expireDate,
+			result = conditionalOrderService.modifyAtrOco(accountSeq, existing.get().conditionalOrderId(), item.quantity(), expireDate,
 				prices.takeProfitTrigger(), prices.takeProfitOrderPrice(), prices.stopLossTrigger(), prices.stopLossOrderPrice());
 		} else {
 			String clientOrderId = "atr-oco-" + symbol + "-" + System.currentTimeMillis();
-			conditionalOrderService.createAtrOco(accountSeq, clientOrderId, symbol, item.quantity(), expireDate,
+			result = conditionalOrderService.createAtrOco(accountSeq, clientOrderId, symbol, item.quantity(), expireDate,
 				prices.takeProfitTrigger(), prices.takeProfitOrderPrice(), prices.stopLossTrigger(), prices.stopLossOrderPrice());
 		}
+
+		// 실패를 조용히 넘기면 보호 장치(손절)가 없거나 실제 보유와 어긋난 채로 보유하게 된다. 반드시 알린다
+		if (result != null && result.status() == ConditionalOrderPlacementResult.Status.FAILED) {
+			String consequence = existing.isPresent()
+				? "OCO 수정에 실패했습니다 (기존 OCO가 그대로 남아 수량과 가격이 실제 보유와 다를 수 있음)"
+				: "OCO 등록에 실패했습니다 (손절 보호가 없는 상태)";
+			alertOcoProblem(symbol, consequence + ". 사유: " + result.errorMessage());
+		}
+	}
+
+	private void alertOcoProblem(String symbol, String detail) {
+		notifier.send("oco-" + symbol, "[담담] " + symbol + " " + detail + ". 직접 확인하세요.");
 	}
 
 	private Optional<HoldingItem> findHolding(long accountSeq, String symbol) {

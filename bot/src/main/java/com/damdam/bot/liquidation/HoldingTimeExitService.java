@@ -1,8 +1,10 @@
 package com.damdam.bot.liquidation;
 
 import com.damdam.bot.account.AccountService;
+import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsService;
+import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.orders.Order;
 import com.damdam.bot.orders.OrderPlacementResult;
 import com.damdam.bot.orders.OrderPlacementService;
@@ -31,6 +33,8 @@ public class HoldingTimeExitService {
 	private final OrderPlacementService orderPlacementService;
 	private final AutoSellGuard autoSellGuard;
 	private final ManagedScopeGate managedScopeGate;
+	private final TradingHaltSwitch haltSwitch;
+	private final Notifier notifier;
 	private final BigDecimal maxAmountKrw;
 	private final BigDecimal maxAmountUsd;
 	private final TradingDayCalculator tradingDayCalculator = new TradingDayCalculator();
@@ -38,7 +42,7 @@ public class HoldingTimeExitService {
 
 	public HoldingTimeExitService(AccountService accountService, HoldingsService holdingsService,
 			OrderService orderService, OrderPlacementService orderPlacementService, AutoSellGuard autoSellGuard,
-			ManagedScopeGate managedScopeGate,
+			ManagedScopeGate managedScopeGate, TradingHaltSwitch haltSwitch, Notifier notifier,
 			@Value("${damdam.orders.max-amount-krw}") String maxAmountKrw,
 			@Value("${damdam.orders.max-amount-usd}") String maxAmountUsd) {
 		this.accountService = accountService;
@@ -47,6 +51,8 @@ public class HoldingTimeExitService {
 		this.orderPlacementService = orderPlacementService;
 		this.autoSellGuard = autoSellGuard;
 		this.managedScopeGate = managedScopeGate;
+		this.haltSwitch = haltSwitch;
+		this.notifier = notifier;
 		this.maxAmountKrw = new BigDecimal(maxAmountKrw);
 		this.maxAmountUsd = new BigDecimal(maxAmountUsd);
 	}
@@ -93,6 +99,11 @@ public class HoldingTimeExitService {
 	}
 
 	private void attemptAutoSell(long accountSeq, HoldingItem item) {
+		if (haltSwitch.isHalted()) {
+			log.warn("[시간 청산] 정지 파일이 있어 {} 자동 매도를 건너뜁니다.", item.symbol());
+			notifier.send("halt-exit-" + item.symbol(), "[담담] 정지 파일 때문에 " + item.symbol() + " 시간 청산 매도를 건너뛰었습니다. 직접 확인하세요.");
+			return;
+		}
 		BigDecimal quantity = new BigDecimal(item.quantity());
 		BigDecimal lastPrice = new BigDecimal(item.lastPrice());
 		BigDecimal orderValue = quantity.multiply(lastPrice);
