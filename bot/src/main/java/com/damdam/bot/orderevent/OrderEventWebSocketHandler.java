@@ -1,5 +1,6 @@
 package com.damdam.bot.orderevent;
 
+import com.damdam.bot.conditionalorder.AtrOcoManagementService;
 import com.damdam.bot.records.TradeRecordWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,14 +20,16 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 	private final long accountSeq;
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
+	private final AtrOcoManagementService atrOcoManagementService;
 	private final Runnable onConnected;
 	private final Runnable onDisconnected;
 
 	OrderEventWebSocketHandler(long accountSeq, ObjectMapper objectMapper, TradeRecordWriter tradeRecordWriter,
-			Runnable onConnected, Runnable onDisconnected) {
+			AtrOcoManagementService atrOcoManagementService, Runnable onConnected, Runnable onDisconnected) {
 		this.accountSeq = accountSeq;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
+		this.atrOcoManagementService = atrOcoManagementService;
 		this.onConnected = onConnected;
 		this.onDisconnected = onDisconnected;
 	}
@@ -70,6 +73,10 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 			tradeRecordWriter.record(order.orderId(), order.symbol(), order.side(), event,
 				execution.filledQuantity(), execution.averageFilledPrice(), execution.filledAmount(),
 				execution.commission(), execution.tax(), order.currency(), order.orderType(), order.status());
+
+			if ("BUY".equals(order.side())) {
+				atrOcoManagementService.syncAfterBuyFill(accountSeq, order.symbol());
+			}
 		}
 	}
 

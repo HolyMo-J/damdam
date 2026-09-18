@@ -1,6 +1,7 @@
 package com.damdam.bot.liquidation;
 
 import com.damdam.bot.account.AccountService;
+import com.damdam.bot.conditionalorder.AtrOcoManagementService;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsService;
 import com.damdam.bot.orders.Order;
@@ -31,6 +32,7 @@ public class HoldingTimeExitService {
 	private final OrderPlacementService orderPlacementService;
 	private final AutoSellGuard autoSellGuard;
 	private final ManagedScopeGate managedScopeGate;
+	private final AtrOcoManagementService atrOcoManagementService;
 	private final BigDecimal maxAmountKrw;
 	private final BigDecimal maxAmountUsd;
 	private final TradingDayCalculator tradingDayCalculator = new TradingDayCalculator();
@@ -38,7 +40,7 @@ public class HoldingTimeExitService {
 
 	public HoldingTimeExitService(AccountService accountService, HoldingsService holdingsService,
 			OrderService orderService, OrderPlacementService orderPlacementService, AutoSellGuard autoSellGuard,
-			ManagedScopeGate managedScopeGate,
+			ManagedScopeGate managedScopeGate, AtrOcoManagementService atrOcoManagementService,
 			@Value("${damdam.orders.max-amount-krw}") String maxAmountKrw,
 			@Value("${damdam.orders.max-amount-usd}") String maxAmountUsd) {
 		this.accountService = accountService;
@@ -47,6 +49,7 @@ public class HoldingTimeExitService {
 		this.orderPlacementService = orderPlacementService;
 		this.autoSellGuard = autoSellGuard;
 		this.managedScopeGate = managedScopeGate;
+		this.atrOcoManagementService = atrOcoManagementService;
 		this.maxAmountKrw = new BigDecimal(maxAmountKrw);
 		this.maxAmountUsd = new BigDecimal(maxAmountUsd);
 	}
@@ -118,5 +121,6 @@ public class HoldingTimeExitService {
 			return;
 		}
 		autoSellGuard.recordAttempt(isLoss);
+		atrOcoManagementService.cancelIfOpen(accountSeq, item.symbol());
 	}
 }

@@ -54,4 +54,11 @@
   - 시간 청산 자동 매도와 동일하게 `damdam.orders.live-mode`로 실전/모의 전환. 기본값은 모의 실행
   - 개발 세션 중에는 CLAUDE.md 규칙에 따라 등록/수정/취소 API를 직접 호출하지 않음. 모의 실행(가짜 RestClient로 실제 API 미호출 확인) 단위 테스트와 가격 계산 단위 테스트로만 검증 (`ConditionalOrderServiceTest`, `AtrOcoPricingTest`)
   - 조회(GET)는 실제 계좌로 실행해 정상 동작 확인 (`ConditionalOrderQueryRunner`, `query` 프로필)
-  - 매수 체결 감지(웹소켓) 시 자동으로 등록/수정하는 연결은 아직 안 함. 다음 작업으로 남음
+- 매수 체결 시 ATR 익절/손절 OCO 자동 등록/수정 연결 (`AtrOcoManagementService`)
+  - 기준가는 평단가(`averagePurchasePrice`). 처음 매수가만 쓰면 추가 매수를 못 반영하고, 최근 체결가만 쓰면 이전 매수분과 무관해져서 이상하다는 사용자 지적으로, 전체 보유분의 실제 손익분기점을 반영하는 평단가로 결정
+  - 웹소켓에서 BUY 체결(FILL/PARTIAL_FILL) 감지 시: 현재 보유 수량 + 평단가 + 14일 ATR로 익절/손절가 계산 → 기존 조건주문 있으면 수정, 없으면 새로 등록
+  - 조건주문 만료일은 시간 청산 기준(5거래일)을 넉넉히 덮도록 등록일+10일로 설정 (그 전에 시간 청산이 대신 정리함)
+  - 시간 청산 자동 매도가 나가면 직후 남은 OCO를 취소 (`HoldingTimeExitService.attemptAutoSell`에서 호출)
+  - OCO 갱신/정리 중 오류(네트워크, ATR 계산 실패 등)는 예외로 웹소켓 처리를 막지 않고 로그로만 남김
+  - `OrderEventWebSocketHandlerTest`를 도달 불가능한 주소로 업데이트해서, BUY 체결 처리 경로에 OCO 동기화가 끼어도 여전히 예외 없이 통과하는지 확인
+  - 실제 계좌로 전체 부팅(의존성 연결) 확인 완료. 실제 매수 체결로 등록/수정까지 끝까지 확인하는 건 아직 안 함 (평소 보유 종목은 관리 대상 밖이라 자연 발생 기회가 없었음)

@@ -1,8 +1,16 @@
 package com.damdam.bot.orderevent;
 
+import com.damdam.bot.conditionalorder.AtrOcoManagementService;
+import com.damdam.bot.conditionalorder.ConditionalOrderService;
+import com.damdam.bot.config.TossApiProperties;
+import com.damdam.bot.holdings.HoldingsService;
+import com.damdam.bot.market.AtrService;
+import com.damdam.bot.market.MarketDataService;
 import com.damdam.bot.records.TradeRecordWriter;
+import com.damdam.bot.token.TokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.socket.TextMessage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -64,7 +72,8 @@ class OrderEventWebSocketHandlerTest {
 	void handlerProcessesFillEventWithoutError() throws Exception {
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-noop.csv");
-		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter, () -> {}, () -> {});
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
+			newUnreachableAtrOcoManagementService(), () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 	}
@@ -74,7 +83,8 @@ class OrderEventWebSocketHandlerTest {
 		Path csvPath = tempDir.resolve("trades.csv");
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter(csvPath.toString());
-		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter, () -> {}, () -> {});
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
+			newUnreachableAtrOcoManagementService(), () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 
@@ -82,5 +92,16 @@ class OrderEventWebSocketHandlerTest {
 		assertTrue(csvContent.contains("test-order-1"));
 		assertTrue(csvContent.contains("AAPL"));
 		assertTrue(csvContent.contains("FILL"));
+	}
+
+	// BUY 체결 시 OCO 갱신을 시도하지만, 네트워크로 나가지 않는 가짜 주소라 실패하고 내부에서 로그로만 처리된다
+	private static AtrOcoManagementService newUnreachableAtrOcoManagementService() {
+		RestClient restClient = RestClient.create("http://localhost:1");
+		TossApiProperties properties = new TossApiProperties("http://localhost:1", "dummy", "dummy", "build/tmp/test-token.json");
+		TokenService tokenService = new TokenService(restClient, properties, new ObjectMapper());
+		HoldingsService holdingsService = new HoldingsService(restClient, tokenService);
+		AtrService atrService = new AtrService(new MarketDataService(restClient, tokenService));
+		ConditionalOrderService conditionalOrderService = new ConditionalOrderService(restClient, tokenService, false);
+		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService);
 	}
 }
