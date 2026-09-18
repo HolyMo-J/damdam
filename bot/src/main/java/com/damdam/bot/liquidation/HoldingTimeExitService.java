@@ -1,7 +1,6 @@
 package com.damdam.bot.liquidation;
 
 import com.damdam.bot.account.AccountService;
-import com.damdam.bot.conditionalorder.AtrOcoManagementService;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsService;
 import com.damdam.bot.orders.Order;
@@ -32,7 +31,6 @@ public class HoldingTimeExitService {
 	private final OrderPlacementService orderPlacementService;
 	private final AutoSellGuard autoSellGuard;
 	private final ManagedScopeGate managedScopeGate;
-	private final AtrOcoManagementService atrOcoManagementService;
 	private final BigDecimal maxAmountKrw;
 	private final BigDecimal maxAmountUsd;
 	private final TradingDayCalculator tradingDayCalculator = new TradingDayCalculator();
@@ -40,7 +38,7 @@ public class HoldingTimeExitService {
 
 	public HoldingTimeExitService(AccountService accountService, HoldingsService holdingsService,
 			OrderService orderService, OrderPlacementService orderPlacementService, AutoSellGuard autoSellGuard,
-			ManagedScopeGate managedScopeGate, AtrOcoManagementService atrOcoManagementService,
+			ManagedScopeGate managedScopeGate,
 			@Value("${damdam.orders.max-amount-krw}") String maxAmountKrw,
 			@Value("${damdam.orders.max-amount-usd}") String maxAmountUsd) {
 		this.accountService = accountService;
@@ -49,7 +47,6 @@ public class HoldingTimeExitService {
 		this.orderPlacementService = orderPlacementService;
 		this.autoSellGuard = autoSellGuard;
 		this.managedScopeGate = managedScopeGate;
-		this.atrOcoManagementService = atrOcoManagementService;
 		this.maxAmountKrw = new BigDecimal(maxAmountKrw);
 		this.maxAmountUsd = new BigDecimal(maxAmountUsd);
 	}
@@ -126,6 +123,7 @@ public class HoldingTimeExitService {
 			return;
 		}
 		autoSellGuard.recordAttempt(isLoss);
-		atrOcoManagementService.cancelIfOpen(accountSeq, item.symbol());
+		// OCO는 여기서 취소하지 않는다. 접수만 된 상태에서 취소하면 매도가 거부되거나 안 팔려도 손절 보호가 사라진다.
+		// 매도 체결(FILL) 이벤트를 받은 뒤 AtrOcoManagementService.syncAfterSellFill이 정리한다
 	}
 }

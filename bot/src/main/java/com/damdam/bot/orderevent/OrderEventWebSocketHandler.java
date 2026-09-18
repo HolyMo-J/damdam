@@ -76,6 +76,9 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 
 			if ("BUY".equals(order.side())) {
 				atrOcoManagementService.syncAfterBuyFill(accountSeq, order.symbol());
+			} else if ("SELL".equals(order.side()) && "FILL".equals(event)) {
+				// 부분 체결(PARTIAL_FILL)에는 반응하지 않는다. 진행 중인 매도(OCO 자신의 매도 포함)를 건드리지 않기 위해 완전 체결만 처리한다
+				atrOcoManagementService.syncAfterSellFill(accountSeq, order.symbol());
 			}
 		}
 	}

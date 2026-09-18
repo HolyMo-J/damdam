@@ -40,7 +40,25 @@ public class AtrOcoManagementService {
 		}
 	}
 
-	// 시간 청산 등으로 포지션이 0이 되면 남은 OCO를 정리한다
+	// 매도가 완전히 체결(FILL)된 뒤에 호출한다. 주문 접수 직후가 아니라 체결을 확인한 뒤에 정리해야,
+	// 매도가 거부되거나 체결이 안 되는 동안에는 손절 보호(OCO)가 유지된다.
+	// 보유가 0이면 남은 OCO를 취소하고, 일부만 팔린 경우에는 이미 있는 OCO의 수량만 남은 보유량에 맞춘다 (없던 OCO를 새로 만들지는 않는다)
+	public void syncAfterSellFill(long accountSeq, String symbol) {
+		try {
+			Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
+			if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
+				cancelIfOpen(accountSeq, symbol);
+				return;
+			}
+			if (conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).isPresent()) {
+				doSync(accountSeq, symbol);
+			}
+		} catch (Exception e) {
+			log.warn("[OCO 정리] {} 매도 체결 후 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+		}
+	}
+
+	// 포지션이 0이 되면 남은 OCO를 정리한다
 	public void cancelIfOpen(long accountSeq, String symbol) {
 		try {
 			conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol)
