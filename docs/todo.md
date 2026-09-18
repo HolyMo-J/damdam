@@ -3,6 +3,7 @@
 항상 최신 상태로 덮어쓴다. 작업을 시작하거나 다음 할 일을 정할 때 먼저 이 문서를 읽는다. 완료된 작업 이력은 docs/done.md 참고.
 
 ## 확인 필요
+- 이미 있는 `bot/data/token.json`의 권한은 다음 토큰 발급 때 자동으로 고쳐짐. 지금 바로 고치려면 PowerShell에서 직접 실행: `icacls bot\data\token.json /inheritance:r /grant:r "$($env:USERNAME):F"` (결과는 `icacls bot\data\token.json`으로 확인, 소유자 항목 하나만 남아야 함)
 - 국내 OCO 호가 단위 자동 보정은 문서 예시 응답 기준으로 구현했고 실제 국내 종목 응답은 확인하지 못함. 실전 전환 후 첫 국내 OCO 등록 로그(`호가 단위 불일치로 거부돼 지정가를 보정해`)를 확인할 것. 특히 감시가(triggerPrice)도 호가 단위를 검증하는지는 문서에 없음. 그 경우 필드가 `first.triggerPrice`로 오고 보정 없이 실패 알림이 나감
 - 재동기화는 실제 재연결 상황(네트워크를 끊었다 붙이기)으로는 아직 확인하지 못함. 봇을 띄운 채 네트워크를 잠깐 끊고 로그의 `주문 재동기화 완료`를 확인할 것
 - 알림을 쓰려면 디스코드에서 웹훅을 만들어 `.env`에 `DAMDAM_DISCORD_WEBHOOK_URL`을 추가하고 봇을 다시 빌드(`./gradlew bootJar`)해서 재시작해야 함. 지금 떠 있는 봇은 옛 버전이라 정지 파일과 종료 요청 파일이 동작하지 않음
@@ -14,8 +15,7 @@
 - 저장소가 공개인지 확인. 종목 코드를 문서에서 일반화했지만 커밋 이력에는 남아 있음
 
 ## 다음 할 일 (실전 전환 전 안전장치 보강, 진행 순서대로)
-1. 토큰 파일 권한을 ACL 방식으로 교체
-2. OrderPlacementService 실주문 경로 테스트 (MockRestServiceServer)와 push마다 gradle test를 돌리는 GitHub Actions (gradlew 실행 권한 필요)
+1. OrderPlacementService 실주문 경로 테스트 (MockRestServiceServer)와 push마다 gradle test를 돌리는 GitHub Actions (gradlew 실행 권한 필요)
 
 ## 다음 할 일 (2단계: 과열 급락 반등 전략 백테스트)
 - 권리락/배당락/액면분할 감지 로직 구현 (`adjusted=true`/`false` 비교, docs/strategy.md 참고. 조사는 끝났고 코드만 남음)

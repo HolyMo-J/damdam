@@ -15,7 +15,7 @@
 - `./gradlew build` 통과 확인 (실제 API 호출 없이)
 
 ### 토큰 관리
-- 토큰 관리 서비스 (`TokenService`): `/oauth2/token` 호출로 액세스 토큰 발급, `bot/data/token.json`에 저장해 재사용, 소유자만 읽기/쓰기 가능하게 권한 제한
+- 토큰 관리 서비스 (`TokenService`): `/oauth2/token` 호출로 액세스 토큰 발급, `bot/data/token.json`에 저장해 재사용, 소유자만 접근 가능하게 권한 제한 (처음에는 `File.setReadable`로 했으나 Windows에서 무동작임을 확인해 표준 ACL API로 교체, 아래 안전장치 보강 참고)
 
 ### 계좌·보유 종목 조회
 - 계좌 조회 (`AccountService`, `AccountQueryRunner`): `/api/v1/accounts` 호출로 계좌 목록과 accountSeq 조회, 계좌번호는 뒷 4자리만 노출
@@ -86,6 +86,7 @@
   - 기존에는 재연결 전에 로그만 남기고 봇 시작 때는 아예 호출되지 않았으며, 재연결이 끝나기 전에 실행돼 그 사이 이벤트를 놓칠 수 있었음
   - 조건주문 조회는 토스 앱에서 직접 만든 단일 조건주문도 돌려주므로 OCO 타입만 봇의 관리 대상으로 삼도록 수정 (앱에서 건 조건주문을 봇이 덮어쓰지 않게)
   - 테스트: `TradeRecordWriterTest`, `OrderResyncServiceTest`, 구독 확정 시점 테스트, OCO 타입 필터 테스트
+- 토큰 파일 권한을 실제로 동작하는 방식으로 교체 (`TokenService`): POSIX는 `rw-------`, Windows(NTFS)는 소유자만 허용하는 ACL(상속 항목 제거). 내용을 쓰기 전에 빈 파일을 만들어 권한부터 제한. 실패하면 조용히 넘기지 않고 경고. 실제 파일 권한을 검사하는 테스트 (`TokenServiceTest`, 가짜 서버로 발급 흉내, 실제 API 호출 없음)
 - 디스코드 웹훅 알림 (`notification` 패키지): 안전장치 발동(연속 손실 정지, 하루 한도, 상태 파일 문제), OCO 등록/수정/취소 실패, 웹소켓 재연결 연속 5회 실패, 토스 API 403(공용 RestClient 인터셉터 한 곳), 봇 시작과 종료. 웹훅 주소는 `.env`에서만 읽고 디스코드 웹훅 형식만 허용, 로그에는 예외 메시지 대신 상태 코드만 남김. 같은 사건은 10분에 한 번만 전송. `MockRestServiceServer`로 요청 본문, 스로틀, 실패 시 로그에 주소 미노출 검증 (`DiscordNotifierTest`)
 - 정지 파일 (`control` 패키지, `TradingHaltSwitch`): `bot/data/STOP`이 있으면 자동 매도와 OCO 등록/수정 중단, 상태가 바뀔 때만 알림. OCO 취소는 막지 않음. 존재 여부를 판단할 수 없으면 정지로 취급. `ControlFileWatcher`(listen 프로필)가 5초마다 확인
 - 정상 종료 요청 파일: Windows에서 `Stop-Process`는 종료 훅을 실행하지 못해 종료 알림이 안 나가므로, `stop-listen.ps1`이 `bot/data/shutdown.request`를 만들어 봇이 스스로 정상 종료하게 하고 15초 안에 안 끝나면 강제 종료
