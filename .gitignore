@@ -20,6 +20,7 @@ analysis/.venv/
 
 # Claude Code 개인 로컬 설정
 .claude/settings.local.json
+MY-WORKFLOW-NOTE.md
 
 # IDE
 .idea/

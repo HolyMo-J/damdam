@@ -18,6 +18,7 @@
 - 계좌 목록을 프로세스 내에서 캐싱해서 중복 조회로 인한 429(호출 제한 초과) 방지
 - 개발 PC 파워쉘 콘솔 한글 깨짐 수정 (콘솔 UTF-8 인코딩을 프로필에 등록, 실행 정책을 RemoteSigned로 변경)
 - 체결 감지 웹소켓 클라이언트 (`orderevent` 패키지): `wss://openapi-ws.tossinvest.com/ws/v1` 연결, `personal:order` 구독, 60초 PING 유지, 끊기면 지수 백오프로 재연결 후 `GET /api/v1/orders?status=OPEN`으로 재동기화
+  - 실제 소액 매수(CPNG 1주)로 실제 주문 이벤트 수신 확인: PENDING → REPLACING/REPLACED(호가 재조정) → FILL까지 정상 수신
 - 진행중 주문 조회 (`orders` 패키지, `OrderService`): 웹소켓 재동기화용
 - 가짜 체결 이벤트 JSON으로 웹소켓 메시지 처리 로직 단위 테스트 (`OrderEventWebSocketHandlerTest`, 실제 API 호출 없음)
 - 웹소켓 주문 이벤트 수신을 백그라운드로 띄우고 끄는 스크립트 (`bot/scripts/start-listen.ps1`, `stop-listen.ps1`), 실제 실행 확인 완료
@@ -61,4 +62,4 @@
   - 시간 청산 자동 매도가 나가면 직후 남은 OCO를 취소 (`HoldingTimeExitService.attemptAutoSell`에서 호출)
   - OCO 갱신/정리 중 오류(네트워크, ATR 계산 실패 등)는 예외로 웹소켓 처리를 막지 않고 로그로만 남김
   - `OrderEventWebSocketHandlerTest`를 도달 불가능한 주소로 업데이트해서, BUY 체결 처리 경로에 OCO 동기화가 끼어도 여전히 예외 없이 통과하는지 확인
-  - 실제 계좌로 전체 부팅(의존성 연결) 확인 완료. 실제 매수 체결로 등록/수정까지 끝까지 확인하는 건 아직 안 함 (평소 보유 종목은 관리 대상 밖이라 자연 발생 기회가 없었음)
+  - `listen` 프로필로 실제 계좌에 연결한 상태에서 소액 실매수(CPNG 1주)로 전체 플로우 끝까지 확인: 웹소켓 FILL 감지(0.4초 내) → 평단가/ATR 계산 → `[모의 조건주문 등록] CPNG 1주 OCO 익절 15.00 / 손절 14.09` 로그까지 에러 없이 정상 동작
