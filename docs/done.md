@@ -75,3 +75,12 @@
   - OCO 갱신/정리 중 오류(네트워크, ATR 계산 실패 등)는 예외로 웹소켓 처리를 막지 않고 로그로만 남김
   - `OrderEventWebSocketHandlerTest`를 도달 불가능한 주소로 업데이트해서, BUY 체결 처리 경로에 OCO 동기화가 끼어도 여전히 예외 없이 통과하는지 확인
   - 실제 계좌 검증: 조회(GET)는 `query` 프로필로 실행 확인. `listen` 프로필로 실제 계좌에 연결한 상태에서 소액 실매수(CPNG 1주)로 전체 플로우 끝까지 확인 — 웹소켓 FILL 감지(0.4초 내) → 평단가/ATR 계산 → `[모의 조건주문 등록] CPNG 1주 OCO 익절 15.00 / 손절 14.09` 로그까지 에러 없이 정상 동작
+
+## 2단계: 과열 급락 반등 전략 백테스트
+
+### 과거 캔들 데이터 수집
+- `MarketDataService`에 페이지네이션 지원 추가 (`getDailyCandlesPage`, `before` 파라미터, 타임존 오프셋 `+` URL 인코딩 처리)
+- `CandleHistoryExporter`(`backtest` 패키지): 한 종목의 일봉을 과거로 계속 페이지네이션해서 모으고, 오래된 것부터 오름차순으로 CSV 저장 (`analysis/data/<종목코드>_daily.csv`). 429 호출 제한 시 `Retry-After` 헤더만큼 대기 후 1회 재시도. 안전 상한 50페이지(1만 봉)
+- `CandleExportRunner`(`export-candles` 프로필): `./gradlew bootRun --args='--spring.profiles.active=export-candles <종목코드>'`로 실행
+- 실제 계좌로 삼성전자(005930) 수집 테스트: 안전 상한(1만 봉)에 걸릴 때까지도 1988년 데이터가 나와서, 캔들 히스토리 깊이는 백테스트에 문제없다는 것 확인 (docs/strategy.md 참고)
+- CSV는 재생성 가능한 데이터라 `.gitignore`에 `analysis/data/` 추가

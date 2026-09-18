@@ -18,6 +18,9 @@ analysis/__pycache__/
 analysis/venv/
 analysis/.venv/
 
+# 백테스트용으로 받은 과거 시세 데이터 (API로 언제든 다시 받을 수 있음, 용량도 커질 수 있음)
+analysis/data/
+
 # Claude Code 개인 로컬 설정
 .claude/settings.local.json
 MY-WORKFLOW-NOTE.md
