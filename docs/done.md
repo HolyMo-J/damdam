@@ -63,7 +63,7 @@
   - `AtrQueryRunner`(`query` 프로필): 보유 종목별로 현재가, 14일 ATR, 익절/손절 기준가를 로그로 출력. 실제 계좌로 실행해 값 확인 완료
 - 조건주문 OCO 등록/수정/취소/조회 (`conditionalorder` 패키지)
   - `AtrOcoPricing`: 체결가 ± ATR로 익절/손절 감시가 계산. KR은 정수로, US는 공식 문서에 명시된 $1 기준 소수 자리수로 맞춤. 손절 지정가는 확실한 체결을 위해 감시가보다 한 스텝(KR 1원, US 0.0001~0.01) 낮게 건다
-    - 호가 단위(tick size) 전체 구간표는 토스 공식 문서에 없어서(예시만 있음) 추측으로 보정하지 않음. 실제 호가 단위와 안 맞으면 API가 400으로 거부하며 올바른 tickSize/nearestPrices를 알려주므로, 그 로그를 보고 필요하면 손으로 조정
+    - 호가 단위(tick size) 전체 구간표는 토스 공식 문서에 없어서(예시만 있음) 추측으로 보정하지 않음. 실제 호가 단위와 안 맞으면 API가 400으로 거부하며 올바른 tickSize/nearestPrices를 알려주므로, 그 값으로 자동 보정해 재시도함 (아래 안전장치 보강 참고)
   - `ConditionalOrderService`: `POST /api/v1/conditional-orders`(등록), `POST .../modify`(수정, 종목당 1개 제한이라 추가 매수 시 새로 만들지 않고 기존 걸 수정), `DELETE .../{id}`(취소), `GET /api/v1/conditional-orders`(종목별 진행 중인 조건주문 조회)
   - 시간 청산 자동 매도와 동일하게 `damdam.orders.live-mode`로 실전/모의 전환. 기본값은 모의 실행
   - 개발 세션 중에는 CLAUDE.md 규칙에 따라 등록/수정/취소 API를 직접 호출하지 않음. 모의 실행(가짜 RestClient로 실제 API 미호출 확인) 단위 테스트와 가격 계산 단위 테스트로만 검증 (`ConditionalOrderServiceTest`, `AtrOcoPricingTest`)
@@ -80,6 +80,7 @@
 - 모의 실행 결과는 안전장치(`AutoSellGuard`)에 기록하지 않음: 실제로 팔리지 않은 손실이 쌓여 실전 전환 때 이미 정지 상태가 되는 문제 수정
 - `AutoSellGuard`를 실패 시 닫히는 방식으로 변경: 상태 파일이 있는데 못 읽으면 정지 상태, 저장에 실패하면 저장될 때까지 주문 차단, 임시 파일 후 원자적 교체. 하루 자동 매도 횟수도 파일에 저장해 재시작해도 유지. 단위 테스트 11개 (`AutoSellGuardTest`)
 - 시간 청산 매도 접수 직후 OCO를 취소하던 것을 매도 체결 확인 후 취소로 변경. 웹소켓 SELL FILL에서만 정리하고 PARTIAL_FILL에는 반응하지 않음. Mockito 단위 테스트 6개 (`AtrOcoManagementServiceTest`)
+- 국내 OCO 호가 단위 자동 보정 (`TickSizeCorrection`, `ConditionalOrderService`): 400 응답의 `data.field`로 어느 지정가인지 판별해 익절(`first.orderPrice`)은 `nearestPrices`의 위쪽, 손절(`second.orderPrice`)은 아래쪽으로 옮겨 다시 보냄. 등록과 수정 모두 적용. 안전 제한: 한 호가를 넘는 이동, 방향이 반대인 값, 모르는 필드, 파싱 불가 응답은 보정하지 않고 실패로 처리해 알림. 재시도는 최대 2회, 재시도마다 새 clientOrderId. 감시가(triggerPrice)는 건드리지 않음. 실제 API 없이 `MockRestServiceServer`로 요청 본문 검증 (`TickSizeCorrectionTest`, `ConditionalOrderServiceLiveTest`). 실제 국내 종목 응답으로는 아직 확인하지 못함
 - 디스코드 웹훅 알림 (`notification` 패키지): 안전장치 발동(연속 손실 정지, 하루 한도, 상태 파일 문제), OCO 등록/수정/취소 실패, 웹소켓 재연결 연속 5회 실패, 토스 API 403(공용 RestClient 인터셉터 한 곳), 봇 시작과 종료. 웹훅 주소는 `.env`에서만 읽고 디스코드 웹훅 형식만 허용, 로그에는 예외 메시지 대신 상태 코드만 남김. 같은 사건은 10분에 한 번만 전송. `MockRestServiceServer`로 요청 본문, 스로틀, 실패 시 로그에 주소 미노출 검증 (`DiscordNotifierTest`)
 - 정지 파일 (`control` 패키지, `TradingHaltSwitch`): `bot/data/STOP`이 있으면 자동 매도와 OCO 등록/수정 중단, 상태가 바뀔 때만 알림. OCO 취소는 막지 않음. 존재 여부를 판단할 수 없으면 정지로 취급. `ControlFileWatcher`(listen 프로필)가 5초마다 확인
 - 정상 종료 요청 파일: Windows에서 `Stop-Process`는 종료 훅을 실행하지 못해 종료 알림이 안 나가므로, `stop-listen.ps1`이 `bot/data/shutdown.request`를 만들어 봇이 스스로 정상 종료하게 하고 15초 안에 안 끝나면 강제 종료

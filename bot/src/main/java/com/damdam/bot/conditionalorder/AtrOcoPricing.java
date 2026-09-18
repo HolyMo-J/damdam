@@ -6,7 +6,7 @@ import java.math.RoundingMode;
 // ATR 익절/손절(docs/strategy.md v0) 가격을 계산한다.
 // 호가 단위(tick size) 구간표는 토스 공식 문서가 예시만 줄 뿐 전체를 제공하지 않아 추측해서 보정하지 않는다.
 // KR은 정수로, US는 문서에 명시된 $1 기준 소수 자리수로만 맞춘다. 실제 호가 단위와 안 맞으면
-// API가 400으로 거부하며 올바른 tickSize/nearestPrices를 응답에 담아주므로, 그 로그를 보고 대응한다.
+// API가 400으로 거부하며 올바른 tickSize/nearestPrices를 응답에 담아주므로, ConditionalOrderService가 그 값으로 지정가를 보정해 다시 보낸다 (TickSizeCorrection).
 public final class AtrOcoPricing {
 
 	private AtrOcoPricing() {
