@@ -120,6 +120,11 @@ public class HoldingTimeExitService {
 			log.warn("[시간 청산] {} 자동 매도 실패: {}", item.symbol(), result.errorMessage());
 			return;
 		}
+		if (result.status() == OrderPlacementResult.Status.SIMULATED) {
+			// 모의 실행은 안전장치 기록에 남기지 않는다. 남기면 실제로 팔리지 않은 손실이 쌓여 실전 전환 때 이미 정지 상태가 된다
+			log.info("[시간 청산] {} 모의 실행이라 안전장치 기록과 OCO 정리를 건너뜁니다.", item.symbol());
+			return;
+		}
 		autoSellGuard.recordAttempt(isLoss);
 		atrOcoManagementService.cancelIfOpen(accountSeq, item.symbol());
 	}
