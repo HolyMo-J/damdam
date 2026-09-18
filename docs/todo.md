@@ -7,7 +7,6 @@
 - 호가 단위(tick size) 불일치 시 자동 보정이 없음. 실전 전환 후 등록/수정이 400으로 거부되면 로그의 tickSize/nearestPrices를 보고 대응 필요
 
 ## 다음 할 일 (2단계: 과열 급락 반등 전략 백테스트)
-- Python + pandas 분석 환경 구성 (analysis 폴더에 venv, requirements.txt)
 - 권리락/배당락/액면분할을 API로 걸러낼 수 있는지 확인 (docs/strategy.md "확인 필요")
 - 현재 국내 주식 매매 수수료율 확인
 - 여러 종목(대형주/중형주 후보군)으로 캔들 데이터 수집 (`export-candles` 프로필, `CandleHistoryExporter`)

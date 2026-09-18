@@ -84,3 +84,7 @@
 - `CandleExportRunner`(`export-candles` 프로필): `./gradlew bootRun --args='--spring.profiles.active=export-candles <종목코드>'`로 실행
 - 실제 계좌로 삼성전자(005930) 수집 테스트: 안전 상한(1만 봉)에 걸릴 때까지도 1988년 데이터가 나와서, 캔들 히스토리 깊이는 백테스트에 문제없다는 것 확인 (docs/strategy.md 참고)
 - CSV는 재생성 가능한 데이터라 `.gitignore`에 `analysis/data/` 추가
+
+### Python 분석 환경
+- `analysis/.venv`(가상환경) + pandas 3.0.6 (`analysis/requirements.txt`로 버전 고정)
+- 실제 생성된 삼성전자 캔들 CSV를 pandas로 읽어 정상 동작 확인 (10,000행, 시각/가격/거래량 타입 정상 인식)
