@@ -32,7 +32,7 @@
 - 진행중 주문 조회 (`orders` 패키지, `OrderService`): 웹소켓 재동기화용
 - 가짜 체결 이벤트 JSON으로 웹소켓 메시지 처리 로직 단위 테스트 (`OrderEventWebSocketHandlerTest`, 실제 API 호출 없음)
 - 웹소켓 주문 이벤트 수신을 백그라운드로 띄우고 끄는 스크립트 (`bot/scripts/start-listen.ps1`, `stop-listen.ps1`)
-- 실제 소액 매수(CPNG 1주)로 실제 주문 이벤트 수신 확인: PENDING → REPLACING/REPLACED(호가 재조정) → FILL까지 정상 수신
+- 실제 소액 매수(해외 종목 1주)로 실제 주문 이벤트 수신 확인: PENDING → REPLACING/REPLACED(호가 재조정) → FILL까지 정상 수신
 
 ### 매매 기록 CSV
 - 매매 기록 CSV 저장 (`records` 패키지, `TradeRecordWriter`): 웹소켓으로 감지된 실제 체결(FILL, PARTIAL_FILL)만 `records/manual_trades.csv`에 한 줄씩 기록. 계좌 식별값 없음
@@ -49,7 +49,7 @@
   - FIFO 판단 로직과 거래일 계산은 가짜 데이터로 단위 테스트 (`PositionEntryResolverTest`, `TradingDayCalculatorTest`)
 - 시간 청산 자동 매도 (`liquidation`, `orders` 패키지): 5거래일 기준 도달 시 실제로 시장가 매도 주문을 낸다
   - 기본값은 모의 실행(`damdam.orders.live-mode=false`). 실전 전환은 사용자가 `.env`에 `DAMDAM_LIVE_ORDERS=true`를 직접 추가해야만 켜짐
-  - 관리 대상은 "이 기능을 처음 실행한 시각 이후에 새로 산 종목"만 (`ManagedScopeGate`). 그 전부터 갖고 있던 종목(사용자 요청으로 SLDP, SPCX, IRE 포함)은 추적 여부와 상관없이 알림만 남기고 자동 매도하지 않음
+  - 관리 대상은 "이 기능을 처음 실행한 시각 이후에 새로 산 종목"만 (`ManagedScopeGate`). 그 전부터 갖고 있던 종목(사용자 요청으로 보유 종목 3개 포함)은 추적 여부와 상관없이 알림만 남기고 자동 매도하지 않음
   - 1회 주문 금액 한도: 국내 10만원, 해외 $71 (약 10만원, 환율 1400원 기준). 초과 시 거부하고 알림만
   - 하루 최대 자동 매도 10회 (버그 폭주 방지용 안전장치, 평소엔 걸리지 않을 여유), 연속 손실 3회 시 자동 매도 정지 (`AutoSellGuard`, `bot/data/auto_sell_guard.json`에 상태 저장)
   - 주문 생성 API(`POST /api/v1/orders`) 실패는 예외로 앱을 죽이지 않고 로그로 남기고 다음 주기에 재시도
@@ -74,7 +74,13 @@
   - 시간 청산 자동 매도가 나가면 직후 남은 OCO를 취소 (`HoldingTimeExitService.attemptAutoSell`에서 호출)
   - OCO 갱신/정리 중 오류(네트워크, ATR 계산 실패 등)는 예외로 웹소켓 처리를 막지 않고 로그로만 남김
   - `OrderEventWebSocketHandlerTest`를 도달 불가능한 주소로 업데이트해서, BUY 체결 처리 경로에 OCO 동기화가 끼어도 여전히 예외 없이 통과하는지 확인
-  - 실제 계좌 검증: 조회(GET)는 `query` 프로필로 실행 확인. `listen` 프로필로 실제 계좌에 연결한 상태에서 소액 실매수(CPNG 1주)로 전체 플로우 끝까지 확인 — 웹소켓 FILL 감지(0.4초 내) → 평단가/ATR 계산 → `[모의 조건주문 등록] CPNG 1주 OCO 익절 15.00 / 손절 14.09` 로그까지 에러 없이 정상 동작
+  - 실제 계좌 검증: 조회(GET)는 `query` 프로필로 실행 확인. `listen` 프로필로 실제 계좌에 연결한 상태에서 소액 실매수(해외 종목 1주)로 전체 플로우 끝까지 확인 — 웹소켓 FILL 감지(0.4초 내) → 평단가/ATR 계산 → `[모의 조건주문 등록] 1주 OCO 익절 15.00 / 손절 14.09` 로그까지 에러 없이 정상 동작
+
+### 안전장치 보강 (외부 리뷰를 공식 문서와 코드로 검증한 뒤 반영)
+- 모의 실행 결과는 안전장치(`AutoSellGuard`)에 기록하지 않음: 실제로 팔리지 않은 손실이 쌓여 실전 전환 때 이미 정지 상태가 되는 문제 수정
+- `AutoSellGuard`를 실패 시 닫히는 방식으로 변경: 상태 파일이 있는데 못 읽으면 정지 상태, 저장에 실패하면 저장될 때까지 주문 차단, 임시 파일 후 원자적 교체. 하루 자동 매도 횟수도 파일에 저장해 재시작해도 유지. 단위 테스트 11개 (`AutoSellGuardTest`)
+- 문서 정리: README(ATR OCO 문구, 구조 트리), CLAUDE.md(현재 단계, 커밋 메시지 한글 규칙), done.md의 실제 종목 코드 일반화, docs/strategy.md(생존 편향 한계, 판단 기준 자리), docs/troubleshooting.md 신설
+- `.env` 없는 깨끗한 복제본에서 `./gradlew test` 전체 통과 확인
 
 ## 2단계: 과열 급락 반등 전략 백테스트
 
