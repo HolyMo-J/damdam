@@ -42,3 +42,8 @@
   - 모의 실행으로 실제 계좌 전체 플로우 확인 완료 (기존 보유 종목 전부 정상적으로 제외됨)
   - 모의 주문 동작과 안전장치(하루 횟수, 연속 손실)는 가짜 데이터로 단위 테스트 (`OrderPlacementServiceTest`, `AutoSellGuardTest`)
   - ATR 기반 익절/손절(조건주문 OCO)은 과거 시세(캔들) 데이터 연동이 필요해서 별도 작업으로 남겨둠
+- 과거 캔들 데이터 조회와 ATR 계산 (`market` 패키지): 조건주문 OCO 등록의 전 단계. 주문 코드는 아직 없음
+  - `MarketDataService`: `GET /api/v1/candles`(일봉, `interval=1d`) 호출로 최신순 캔들 목록 조회. 계좌 구분 없는 공개 시세 데이터라 계좌 헤더 불필요
+  - `AverageTrueRange`: 진짜 변동폭(True Range)의 단순 평균으로 14거래일 ATR 계산 (`AtrService`). 순수 계산 로직이라 API 호출 없음
+  - `AtrQueryRunner`(`query` 프로필): 보유 종목별로 현재가, 14일 ATR, 익절/손절 기준가를 로그로 출력. 실제 계좌로 실행해 SLDP, SPCX, IRE 모두 합리적인 값 확인 완료
+  - 조건주문 OCO 등록(`POST /api/v1/conditional-orders`)은 실제 돈이 움직이는 코드라 사용자 별도 허락 후 다음 작업으로 진행
