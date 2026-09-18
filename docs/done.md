@@ -92,3 +92,10 @@
 ### 매매 수수료 조회
 - 매매 수수료 조회 (`commission` 패키지, `CommissionService`, `CommissionQueryRunner`): `GET /api/v1/commissions` 호출로 계좌의 시장별 실제 수수료율 조회
 - 실제 계좌로 확인: 국내(KR) 0.00015(2021-01-01부터 사실상 무기한), 해외(US) 0.001(종료일 2026-09-19, 프로모션 요율 가능성 있어 재확인 필요)
+
+### 백테스트 대상 종목군 수집
+- 종목 기본 정보 조회 (`stocks` 패키지, `StockInfoService`): `GET /api/v1/stocks`로 `securityType`, `isCommonShare`, `status` 등 조회
+- 랭킹 조회 (`ranking` 패키지, `RankingService`): `GET /api/v1/rankings`로 국내 거래대금 상위 종목 조회 (계좌 무관, 토큰만으로 호출)
+- `UniverseExportRunner`(`export-universe` 프로필): 거래대금 상위 풀(기본 100종목)을 받아 `StockInfoService`로 걸러서 ETF/ETN(레버리지·인버스 상품 등)을 제외한 일반 보통주만 남기고, 상위 N개(기본 30개)의 캔들 히스토리를 수집
+  - ETF를 안 거르면 거래대금 상위에 KODEX 200, 레버리지/인버스 상품 등이 섞여 들어와서 "대형주/중형주" 취지와 안 맞음. 실제로 100종목 중 걸러내고 나니 44위까지 내려가야 보통주 30개가 채워짐
+  - 실제 계좌로 실행 확인: SK하이닉스, 삼성전자, 현대차, NAVER, 삼성SDI 등 실제 대형주 30종목의 캔들 CSV를 `analysis/data/`에 저장 완료
