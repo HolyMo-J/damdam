@@ -88,3 +88,7 @@
 ### Python 분석 환경
 - `analysis/.venv`(가상환경) + pandas 3.0.6 (`analysis/requirements.txt`로 버전 고정)
 - 실제 생성된 삼성전자 캔들 CSV를 pandas로 읽어 정상 동작 확인 (10,000행, 시각/가격/거래량 타입 정상 인식)
+
+### 매매 수수료 조회
+- 매매 수수료 조회 (`commission` 패키지, `CommissionService`, `CommissionQueryRunner`): `GET /api/v1/commissions` 호출로 계좌의 시장별 실제 수수료율 조회
+- 실제 계좌로 확인: 국내(KR) 0.00015(2021-01-01부터 사실상 무기한), 해외(US) 0.001(종료일 2026-09-19, 프로모션 요율 가능성 있어 재확인 필요)
