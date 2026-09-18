@@ -87,6 +87,7 @@
   - 조건주문 조회는 토스 앱에서 직접 만든 단일 조건주문도 돌려주므로 OCO 타입만 봇의 관리 대상으로 삼도록 수정 (앱에서 건 조건주문을 봇이 덮어쓰지 않게)
   - 테스트: `TradeRecordWriterTest`, `OrderResyncServiceTest`, 구독 확정 시점 테스트, OCO 타입 필터 테스트
 - 토큰 파일 권한을 실제로 동작하는 방식으로 교체 (`TokenService`): POSIX는 `rw-------`, Windows(NTFS)는 소유자만 허용하는 ACL(상속 항목 제거). 내용을 쓰기 전에 빈 파일을 만들어 권한부터 제한. 실패하면 조용히 넘기지 않고 경고. 실제 파일 권한을 검사하는 테스트 (`TokenServiceTest`, 가짜 서버로 발급 흉내, 실제 API 호출 없음)
+- 실주문 경로 테스트와 CI: `OrderPlacementService`의 live-mode 경로를 `MockRestServiceServer`로 검증 (주소 `POST /api/v1/orders`, Authorization과 계정 헤더, 본문이 보유 수량 전체 시장가 매도이고 price 없음, 거부는 예외 없이 FAILED, 재시도 없음, 모의 모드는 요청 없음). push마다 `./gradlew test`를 돌리는 GitHub Actions 추가 (`.github/workflows/test.yml`, Java 21 Temurin, 시크릿 불필요, 실패 시 보고서 업로드, 액션 버전은 공식 최신 릴리스 확인). `bot/gradlew`의 git 실행 권한(100755) 설정
 - 디스코드 웹훅 알림 (`notification` 패키지): 안전장치 발동(연속 손실 정지, 하루 한도, 상태 파일 문제), OCO 등록/수정/취소 실패, 웹소켓 재연결 연속 5회 실패, 토스 API 403(공용 RestClient 인터셉터 한 곳), 봇 시작과 종료. 웹훅 주소는 `.env`에서만 읽고 디스코드 웹훅 형식만 허용, 로그에는 예외 메시지 대신 상태 코드만 남김. 같은 사건은 10분에 한 번만 전송. `MockRestServiceServer`로 요청 본문, 스로틀, 실패 시 로그에 주소 미노출 검증 (`DiscordNotifierTest`)
 - 정지 파일 (`control` 패키지, `TradingHaltSwitch`): `bot/data/STOP`이 있으면 자동 매도와 OCO 등록/수정 중단, 상태가 바뀔 때만 알림. OCO 취소는 막지 않음. 존재 여부를 판단할 수 없으면 정지로 취급. `ControlFileWatcher`(listen 프로필)가 5초마다 확인
 - 정상 종료 요청 파일: Windows에서 `Stop-Process`는 종료 훅을 실행하지 못해 종료 알림이 안 나가므로, `stop-listen.ps1`이 `bot/data/shutdown.request`를 만들어 봇이 스스로 정상 종료하게 하고 15초 안에 안 끝나면 강제 종료
