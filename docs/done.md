@@ -94,6 +94,9 @@
 - 문서 정리: README(ATR OCO 문구, 구조 트리), CLAUDE.md(현재 단계, 커밋 메시지 한글 규칙), done.md의 실제 종목 코드 일반화, docs/strategy.md(생존 편향 한계, 판단 기준 자리), docs/troubleshooting.md 신설
 - `.env` 없는 깨끗한 복제본에서 `./gradlew test` 전체 통과 확인
 
+### 외부 리뷰 반영 (docs/review-tasks.md)
+- CLAUDE.md 작업 규칙에 두 가지 추가: 새로 발견한 문제는 실전 전환을 막는지로 처리 여부를 가른다, 외부 수정 제안은 코드와 공식 문서로 검증 후 판단한다. 참고 문서 목록에 docs/review-tasks.md 추가
+
 ## 2단계: 과열 급락 반등 전략 백테스트
 
 ### 과거 캔들 데이터 수집
