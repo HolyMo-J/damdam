@@ -1,6 +1,7 @@
 package com.damdam.bot.orderevent;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
+import com.damdam.bot.liquidation.HoldingTimeExitService;
 import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.records.TradeRecordWriter;
 import org.slf4j.Logger;
@@ -12,6 +13,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 class OrderEventWebSocketHandler extends TextWebSocketHandler {
@@ -22,16 +24,19 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
+	private final HoldingTimeExitService holdingTimeExitService;
 	private final Notifier notifier;
 	private final Runnable onConnected;
 	private final Runnable onDisconnected;
 
 	OrderEventWebSocketHandler(long accountSeq, ObjectMapper objectMapper, TradeRecordWriter tradeRecordWriter,
-			AtrOcoManagementService atrOcoManagementService, Notifier notifier, Runnable onConnected, Runnable onDisconnected) {
+			AtrOcoManagementService atrOcoManagementService, HoldingTimeExitService holdingTimeExitService, Notifier notifier,
+			Runnable onConnected, Runnable onDisconnected) {
 		this.accountSeq = accountSeq;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
+		this.holdingTimeExitService = holdingTimeExitService;
 		this.notifier = notifier;
 		this.onConnected = onConnected;
 		this.onDisconnected = onDisconnected;
@@ -87,6 +92,9 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 			} else if ("SELL".equals(order.side()) && "FILL".equals(event)) {
 				// 부분 체결(PARTIAL_FILL)에는 반응하지 않는다. 진행 중인 매도(OCO 자신의 매도 포함)를 건드리지 않기 위해 완전 체결만 처리한다
 				atrOcoManagementService.syncAfterSellFill(accountSeq, order.symbol());
+				// 시간 청산이 낸 매도가 아니면(OCO 트리거, 수동 매도 등) 내부적으로 아무 것도 하지 않는다
+				holdingTimeExitService.onAutoSellFilled(order.orderId(), new BigDecimal(execution.filledQuantity()),
+					new BigDecimal(execution.filledAmount()), new BigDecimal(execution.commission()), new BigDecimal(execution.tax()));
 				notifier.send("sell-fill-" + order.symbol(), "[담담] " + order.symbol() + " 매도 체결: "
 					+ execution.filledQuantity() + "주, 평균 " + execution.averageFilledPrice() + order.currency()
 					+ ", 총 " + execution.filledAmount() + order.currency());

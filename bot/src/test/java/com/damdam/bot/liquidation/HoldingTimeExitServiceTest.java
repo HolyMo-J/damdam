@@ -16,12 +16,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -185,5 +187,53 @@ class HoldingTimeExitServiceTest {
 		service.checkAndAlert();
 
 		assertTrue(alerts.contains("time-exit-placed-" + SYMBOL));
+	}
+
+	// 하루 횟수는 폭주 방지가 목적이라 체결을 기다리지 않고 접수 시점에 바로 센다
+	@Test
+	void dailyAttemptIsRecordedRightAwayEvenBeforeFill(@TempDir Path tempDir) {
+		autoSellGuard = new AutoSellGuard(1, 10, tempDir.resolve("guard.json").toString(),
+			java.time.Clock.systemDefaultZone(), fakeNotifier);
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.PLACED, "order-1", null, null));
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertFalse(autoSellGuard.canPlaceAutoSell(SYMBOL));
+	}
+
+	// lastPrice(100)만 보면 평단가(90)보다 높아 이익처럼 보이지만, 실제 체결금액에서 수수료/세금을 빼면 원가(900원)에 못 미쳐 손실이다
+	@Test
+	void onAutoSellFilledCountsAsLossWhenFeesTurnAWinIntoALoss(@TempDir Path tempDir) {
+		autoSellGuard = new AutoSellGuard(10, 1, tempDir.resolve("guard.json").toString(),
+			java.time.Clock.systemDefaultZone(), fakeNotifier);
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.PLACED, "order-1", null, null));
+		HoldingTimeExitService service = newService();
+		service.checkAndAlert();
+		assertTrue(autoSellGuard.canPlaceAutoSell(SYMBOL));
+
+		service.onAutoSellFilled("order-1", new BigDecimal("10"), new BigDecimal("900"), new BigDecimal("1"), new BigDecimal("2"));
+
+		assertFalse(autoSellGuard.canPlaceAutoSell(SYMBOL));
+	}
+
+	// OCO 트리거나 수동 매도처럼 시간 청산이 내지 않은 매도 체결은 연속 손실 판정에 영향을 주지 않는다
+	@Test
+	void onAutoSellFilledIgnoresOrdersItDidNotPlace(@TempDir Path tempDir) {
+		autoSellGuard = new AutoSellGuard(10, 1, tempDir.resolve("guard.json").toString(),
+			java.time.Clock.systemDefaultZone(), fakeNotifier);
+		HoldingTimeExitService service = newService();
+
+		service.onAutoSellFilled("unrelated-order", new BigDecimal("1"), new BigDecimal("0"), new BigDecimal("0"), new BigDecimal("0"));
+
+		assertTrue(autoSellGuard.canPlaceAutoSell(SYMBOL));
 	}
 }

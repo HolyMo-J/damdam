@@ -76,22 +76,35 @@ class AutoSellGuard {
 		return true;
 	}
 
-	// 실제로 주문이 접수된 경우에만 호출한다. 모의 실행 결과를 기록하면 실전 전환 때 이미 정지 상태일 수 있다
-	synchronized void recordAttempt(boolean isLoss) {
+	// 실제로 주문이 접수된 직후 호출한다. 폭주 방지가 목적이라 체결 여부와 무관하게 시도 자체를 센다.
+	// 모의 실행 결과는 기록하지 않는다. 기록하면 실전 전환 때 이미 한도에 걸린 상태일 수 있다
+	synchronized void recordDailyAttempt() {
+		GuardState state = readState();
+		String today = today();
+		GuardState next = new GuardState(state.consecutiveLosses(), state.paused(), today, state.dailyCountOn(today) + 1);
+		persist(next);
+	}
+
+	// 매도가 실제로 체결된 뒤, 수수료/세금을 반영한 실현 손익으로 호출한다 (연속 손실 판정).
+	// 모의 실행은 체결 자체가 없으므로 호출되지 않는다
+	synchronized void recordSellResult(boolean isLoss) {
 		GuardState state = readState();
 		int losses = isLoss ? state.consecutiveLosses() + 1 : 0;
 		boolean paused = state.paused() || losses >= maxConsecutiveLosses;
 		String today = today();
-		GuardState next = new GuardState(losses, paused, today, state.dailyCountOn(today) + 1);
+		GuardState next = new GuardState(losses, paused, today, state.dailyCountOn(today));
+		persist(next);
+		if (paused && !state.paused()) {
+			log.warn("[안전장치] 연속 손실 {}회에 도달해 자동 매도를 정지합니다. 전략 재검토가 필요합니다.", losses);
+			notifier.send("guard-paused-now", "[담담] 연속 손실 " + losses + "회에 도달해 자동 매도를 정지했습니다. 전략 재검토가 필요합니다.");
+		}
+	}
 
+	private void persist(GuardState next) {
 		if (writeState(next)) {
 			unsavedState = null;
 		} else {
 			unsavedState = next;
-		}
-		if (paused && !state.paused()) {
-			log.warn("[안전장치] 연속 손실 {}회에 도달해 자동 매도를 정지합니다. 전략 재검토가 필요합니다.", losses);
-			notifier.send("guard-paused-now", "[담담] 연속 손실 " + losses + "회에 도달해 자동 매도를 정지했습니다. 전략 재검토가 필요합니다.");
 		}
 	}
 

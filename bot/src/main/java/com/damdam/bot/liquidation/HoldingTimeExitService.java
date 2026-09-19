@@ -18,6 +18,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 // 최대 보유 5거래일(docs/strategy.md v0) 도달 시 자동 매도. 보유 시작 시점을 추적할 수 없는 기존 종목은 알림만
 @Service
@@ -39,6 +41,9 @@ public class HoldingTimeExitService {
 	private final BigDecimal maxAmountUsd;
 	private final TradingDayCalculator tradingDayCalculator = new TradingDayCalculator();
 	private final PositionEntryResolver positionEntryResolver = new PositionEntryResolver();
+	// 시간 청산 매도를 접수한 뒤 실제 체결(SELL FILL)이 올 때까지, 연속 손실 판정에 쓸 매수 평단가를 주문ID로 잠깐 들고 있는다.
+	// 봇이 접수와 체결 사이에 재시작되면 이 목록은 비어서 그 1건은 연속 손실 판정에서 빠질 수 있다 (docs/todo.md 참고, 드문 경우라 감수하기로 함)
+	private final Map<String, BigDecimal> pendingAutoSellAvgPrice = new ConcurrentHashMap<>();
 
 	public HoldingTimeExitService(AccountService accountService, HoldingsService holdingsService,
 			OrderService orderService, OrderPlacementService orderPlacementService, AutoSellGuard autoSellGuard,
@@ -134,7 +139,6 @@ public class HoldingTimeExitService {
 			return;
 		}
 
-		boolean isLoss = lastPrice.compareTo(new BigDecimal(item.averagePurchasePrice())) < 0;
 		String clientOrderId = "time-exit-" + item.symbol() + "-" + LocalDate.now();
 		OrderPlacementResult result = orderPlacementService.placeMarketSell(accountSeq, clientOrderId, item.symbol(), item.quantity());
 
@@ -153,8 +157,25 @@ public class HoldingTimeExitService {
 		log.warn("[시간 청산] {} 자동 매도 주문 접수됨 (orderId={})", item.symbol(), result.orderId());
 		notifier.send("time-exit-placed-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 자동 매도 주문이 접수됐습니다 (orderId="
 			+ result.orderId() + "). 체결되면 별도로 알립니다.");
-		autoSellGuard.recordAttempt(isLoss);
+		// 하루 횟수는 폭주 방지가 목적이라 접수 시점에 바로 센다. 연속 손실은 실제 체결가로 판정하려고 체결 때까지 미룬다 (onAutoSellFilled)
+		autoSellGuard.recordDailyAttempt();
+		pendingAutoSellAvgPrice.put(result.orderId(), new BigDecimal(item.averagePurchasePrice()));
 		// OCO는 여기서 취소하지 않는다. 접수만 된 상태에서 취소하면 매도가 거부되거나 안 팔려도 손절 보호가 사라진다.
 		// 매도 체결(FILL) 이벤트를 받은 뒤 AtrOcoManagementService.syncAfterSellFill이 정리한다
+	}
+
+	// SELL FILL 이벤트가 올 때마다 호출된다. orderId가 시간 청산이 낸 매도가 아니면(OCO 트리거, 사용자 수동 매도 등)
+	// 아무 것도 하지 않는다. 매도 실현 손익(체결금액 - 수수료 - 세금)이 매수 원가(평단가 x 체결수량)보다 작으면 손실로 판정한다.
+	// 매수측 수수료가 평단가에 이미 포함돼 있는지는 공식 문서에 없어 확인할 수 없었다. 매도측 수수료/세금만 정확히 반영하고
+	// 매수측은 평단가를 그대로 원가로 쓴다 (수수료율이 작아 판정 왜곡은 미미하다고 판단)
+	public void onAutoSellFilled(String orderId, BigDecimal filledQuantity, BigDecimal filledAmount, BigDecimal commission, BigDecimal tax) {
+		BigDecimal averagePurchasePrice = pendingAutoSellAvgPrice.remove(orderId);
+		if (averagePurchasePrice == null) {
+			return;
+		}
+		BigDecimal proceeds = filledAmount.subtract(commission).subtract(tax);
+		BigDecimal costBasis = averagePurchasePrice.multiply(filledQuantity);
+		boolean isLoss = proceeds.compareTo(costBasis) < 0;
+		autoSellGuard.recordSellResult(isLoss);
 	}
 }

@@ -1,6 +1,7 @@
 package com.damdam.bot.orderevent;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
+import com.damdam.bot.liquidation.HoldingTimeExitService;
 import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.records.TradeRecordWriter;
 import com.damdam.bot.token.TokenService;
@@ -48,6 +49,7 @@ public class OrderStreamClient {
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
+	private final HoldingTimeExitService holdingTimeExitService;
 	private final Notifier notifier;
 
 	private volatile boolean running;
@@ -57,12 +59,14 @@ public class OrderStreamClient {
 	private int reconnectAttempts;
 
 	public OrderStreamClient(TokenService tokenService, OrderResyncService orderResyncService, ObjectMapper objectMapper,
-			TradeRecordWriter tradeRecordWriter, AtrOcoManagementService atrOcoManagementService, Notifier notifier) {
+			TradeRecordWriter tradeRecordWriter, AtrOcoManagementService atrOcoManagementService,
+			HoldingTimeExitService holdingTimeExitService, Notifier notifier) {
 		this.tokenService = tokenService;
 		this.orderResyncService = orderResyncService;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
+		this.holdingTimeExitService = holdingTimeExitService;
 		this.notifier = notifier;
 	}
 
@@ -89,7 +93,7 @@ public class OrderStreamClient {
 		WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
 		headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken());
 		var handler = new OrderEventWebSocketHandler(accountSeq, objectMapper, tradeRecordWriter, atrOcoManagementService,
-			notifier, this::onConnected, this::onDisconnected);
+			holdingTimeExitService, notifier, this::onConnected, this::onDisconnected);
 
 		webSocketClient.execute(handler, headers, ENDPOINT)
 			.whenComplete((session, error) -> {

@@ -5,6 +5,7 @@ import com.damdam.bot.conditionalorder.ConditionalOrderService;
 import com.damdam.bot.config.TossApiProperties;
 import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingsService;
+import com.damdam.bot.liquidation.HoldingTimeExitService;
 import com.damdam.bot.market.AtrService;
 import com.damdam.bot.market.MarketDataService;
 import com.damdam.bot.records.TradeRecordWriter;
@@ -23,6 +24,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class OrderEventWebSocketHandlerTest {
 
@@ -76,7 +78,7 @@ class OrderEventWebSocketHandlerTest {
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-noop.csv");
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), (key, message) -> {}, () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), mock(HoldingTimeExitService.class), (key, message) -> {}, () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 	}
@@ -87,7 +89,7 @@ class OrderEventWebSocketHandlerTest {
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter(csvPath.toString());
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), (key, message) -> {}, () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), mock(HoldingTimeExitService.class), (key, message) -> {}, () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 
@@ -105,7 +107,7 @@ class OrderEventWebSocketHandlerTest {
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-sell.csv");
 		List<String> alertKeys = new ArrayList<>();
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), mock(HoldingTimeExitService.class), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(sellFillJson));
 
@@ -119,7 +121,7 @@ class OrderEventWebSocketHandlerTest {
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-buy.csv");
 		List<String> alertKeys = new ArrayList<>();
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), mock(HoldingTimeExitService.class), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 
@@ -151,7 +153,7 @@ class OrderEventWebSocketHandlerTest {
 		int[] connected = {0};
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, new ObjectMapper(),
 			new TradeRecordWriter("build/tmp/test-trades-noop.csv"), newUnreachableAtrOcoManagementService(),
-			(key, message) -> {}, () -> connected[0]++, () -> {});
+			mock(HoldingTimeExitService.class), (key, message) -> {}, () -> connected[0]++, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(REJECTED_ACK_JSON));
 		assertEquals(0, connected[0]);

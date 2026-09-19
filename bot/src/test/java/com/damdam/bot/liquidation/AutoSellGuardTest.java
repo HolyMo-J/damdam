@@ -36,9 +36,9 @@ class AutoSellGuardTest {
 		AutoSellGuard guard = guard(2, 10, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
 		assertTrue(guard.canPlaceAutoSell("AAA"));
-		guard.recordAttempt(false);
+		guard.recordDailyAttempt();
 		assertTrue(guard.canPlaceAutoSell("AAA"));
-		guard.recordAttempt(false);
+		guard.recordDailyAttempt();
 
 		assertFalse(guard.canPlaceAutoSell("AAA"));
 	}
@@ -47,10 +47,10 @@ class AutoSellGuardTest {
 	void pausesAfterConsecutiveLosses(@TempDir Path tempDir) {
 		AutoSellGuard guard = guard(100, 3, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
-		guard.recordAttempt(true);
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
+		guard.recordSellResult(true);
 		assertTrue(guard.canPlaceAutoSell("AAA"));
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
 
 		assertFalse(guard.canPlaceAutoSell("AAA"));
 	}
@@ -59,9 +59,32 @@ class AutoSellGuardTest {
 	void aWinResetsConsecutiveLosses(@TempDir Path tempDir) {
 		AutoSellGuard guard = guard(100, 2, tempDir.resolve("state.json"), Clock.systemDefaultZone());
 
-		guard.recordAttempt(true);
-		guard.recordAttempt(false);
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
+		guard.recordSellResult(false);
+		guard.recordSellResult(true);
+
+		assertTrue(guard.canPlaceAutoSell("AAA"));
+	}
+
+	// 하루 횟수와 연속 손실은 서로 다른 시점(접수/체결)에 갱신되므로 한쪽이 다른 쪽에 영향을 주면 안 된다
+	@Test
+	void dailyAttemptsDoNotAffectConsecutiveLosses(@TempDir Path tempDir) {
+		AutoSellGuard guard = guard(100, 1, tempDir.resolve("state.json"), Clock.systemDefaultZone());
+
+		guard.recordDailyAttempt();
+		guard.recordDailyAttempt();
+		guard.recordDailyAttempt();
+
+		assertTrue(guard.canPlaceAutoSell("AAA"));
+	}
+
+	@Test
+	void sellResultsDoNotAffectDailyCount(@TempDir Path tempDir) {
+		AutoSellGuard guard = guard(1, 100, tempDir.resolve("state.json"), Clock.systemDefaultZone());
+
+		guard.recordSellResult(false);
+		guard.recordSellResult(false);
+		guard.recordSellResult(false);
 
 		assertTrue(guard.canPlaceAutoSell("AAA"));
 	}
@@ -73,8 +96,8 @@ class AutoSellGuardTest {
 		Clock today = dayClock("2026-09-21");
 
 		AutoSellGuard first = guard(2, 10, file, today);
-		first.recordAttempt(false);
-		first.recordAttempt(false);
+		first.recordDailyAttempt();
+		first.recordDailyAttempt();
 
 		AutoSellGuard restarted = guard(2, 10, file, today);
 		assertFalse(restarted.canPlaceAutoSell("AAA"));
@@ -85,7 +108,7 @@ class AutoSellGuardTest {
 		Path file = tempDir.resolve("state.json");
 
 		AutoSellGuard monday = guard(1, 10, file, dayClock("2026-09-21"));
-		monday.recordAttempt(false);
+		monday.recordDailyAttempt();
 		assertFalse(monday.canPlaceAutoSell("AAA"));
 
 		AutoSellGuard tuesday = guard(1, 10, file, dayClock("2026-09-22"));
@@ -98,8 +121,8 @@ class AutoSellGuardTest {
 		Clock today = dayClock("2026-09-21");
 
 		AutoSellGuard first = guard(100, 2, file, today);
-		first.recordAttempt(true);
-		first.recordAttempt(true);
+		first.recordSellResult(true);
+		first.recordSellResult(true);
 
 		assertFalse(guard(100, 2, file, today).canPlaceAutoSell("AAA"));
 	}
@@ -124,7 +147,7 @@ class AutoSellGuardTest {
 		Path file = tempDir.resolve("state.json");
 		Clock today = dayClock("2026-09-21");
 		AutoSellGuard guard = guard(100, 1, file, today);
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
 		assertFalse(guard.canPlaceAutoSell("AAA"));
 
 		Files.delete(file);
@@ -140,7 +163,7 @@ class AutoSellGuardTest {
 		AutoSellGuard guard = guard(10, 3, file, dayClock("2026-09-21"));
 
 		assertTrue(guard.canPlaceAutoSell("AAA"));
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
 		assertFalse(guard.canPlaceAutoSell("AAA"));
 	}
 
@@ -152,7 +175,7 @@ class AutoSellGuardTest {
 		AutoSellGuard guard = guard(10, 3, notADirectory.resolve("state.json"), dayClock("2026-09-21"));
 
 		assertTrue(guard.canPlaceAutoSell("AAA"));
-		guard.recordAttempt(false);
+		guard.recordDailyAttempt();
 
 		assertFalse(guard.canPlaceAutoSell("AAA"));
 	}
@@ -161,9 +184,9 @@ class AutoSellGuardTest {
 	void alertsWhenTheConsecutiveLossLimitPausesAutoSell(@TempDir Path tempDir) {
 		AutoSellGuard guard = guard(100, 2, tempDir.resolve("state.json"), dayClock("2026-09-21"));
 
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
 		assertTrue(alerts.isEmpty());
-		guard.recordAttempt(true);
+		guard.recordSellResult(true);
 
 		assertEquals(List.of("guard-paused-now"), alerts);
 	}
@@ -182,7 +205,7 @@ class AutoSellGuardTest {
 	@Test
 	void alertsWhenTheDailyLimitBlocksAnOrder(@TempDir Path tempDir) {
 		AutoSellGuard guard = guard(1, 10, tempDir.resolve("state.json"), dayClock("2026-09-21"));
-		guard.recordAttempt(false);
+		guard.recordDailyAttempt();
 
 		guard.canPlaceAutoSell("AAA");
 
