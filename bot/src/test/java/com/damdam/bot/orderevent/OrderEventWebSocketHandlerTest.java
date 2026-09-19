@@ -135,7 +135,7 @@ class OrderEventWebSocketHandlerTest {
 		AtrService atrService = new AtrService(new MarketDataService(restClient, tokenService));
 		ConditionalOrderService conditionalOrderService = new ConditionalOrderService(restClient, tokenService, false);
 		return new AtrOcoManagementService(holdingsService, atrService, conditionalOrderService, (key, message) -> {},
-			new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}));
+			new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}, event -> {}));
 	}
 
 	private static final String ACK_JSON = """

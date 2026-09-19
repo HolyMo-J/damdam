@@ -16,9 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TradingHaltSwitchTest {
 
 	private final List<String> alerts = new ArrayList<>();
+	private final List<Object> publishedEvents = new ArrayList<>();
 
 	private TradingHaltSwitch haltSwitch(Path file) {
-		return new TradingHaltSwitch(file.toString(), (key, message) -> alerts.add(key));
+		return new TradingHaltSwitch(file.toString(), (key, message) -> alerts.add(key), publishedEvents::add);
 	}
 
 	@Test
@@ -57,5 +58,23 @@ class TradingHaltSwitchTest {
 		halt.isHalted();
 		halt.isHalted();
 		assertEquals(List.of("halt-on", "halt-off"), alerts);
+	}
+
+	// 재개 시점에만 OCO 정기 점검을 깨우는 이벤트를 보낸다 (정지 시작이나 반복 확인 때는 보내지 않는다)
+	@Test
+	void publishesResumedEventOnlyWhenHaltIsLifted(@TempDir Path tempDir) throws IOException {
+		Path file = tempDir.resolve("STOP");
+		TradingHaltSwitch halt = haltSwitch(file);
+
+		Files.writeString(file, "");
+		halt.isHalted();
+		halt.isHalted();
+		assertTrue(publishedEvents.isEmpty());
+
+		Files.delete(file);
+		halt.isHalted();
+		halt.isHalted();
+		assertEquals(1, publishedEvents.size());
+		assertTrue(publishedEvents.get(0) instanceof TradingResumedEvent);
 	}
 }

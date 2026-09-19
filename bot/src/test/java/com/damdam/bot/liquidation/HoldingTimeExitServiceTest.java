@@ -66,7 +66,7 @@ class HoldingTimeExitServiceTest {
 		Path scopeStartFile = tempDir.resolve("scope-start");
 		Files.writeString(scopeStartFile, OffsetDateTime.now().minusYears(1).toString());
 		managedScopeGate = new ManagedScopeGate(scopeStartFile.toString());
-		haltSwitch = new TradingHaltSwitch(tempDir.resolve("STOP").toString(), fakeNotifier);
+		haltSwitch = new TradingHaltSwitch(tempDir.resolve("STOP").toString(), fakeNotifier, event -> {});
 
 		when(accountService.getPrimaryAccountSeq()).thenReturn(ACCOUNT);
 		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))

@@ -80,7 +80,8 @@ public class OrderResyncService {
 		}
 	}
 
-	private int ensureOcosForManagedHoldings(long accountSeq) {
+	// OcoPeriodicCheckService(웹소켓 재연결 사이 정기 점검)에서도 같은 로직을 쓴다
+	public int ensureOcosForManagedHoldings(long accountSeq) {
 		int fixed = 0;
 		List<HoldingItem> items = holdingsService.getHoldings(accountSeq).items();
 		for (HoldingItem item : items) {

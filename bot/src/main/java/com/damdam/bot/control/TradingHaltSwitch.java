@@ -4,6 +4,7 @@ import com.damdam.bot.notification.Notifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
@@ -18,11 +19,14 @@ public class TradingHaltSwitch {
 
 	private final Path haltFile;
 	private final Notifier notifier;
+	private final ApplicationEventPublisher eventPublisher;
 	private boolean lastHalted;
 
-	public TradingHaltSwitch(@Value("${damdam.control.halt-file-path}") String haltFilePath, Notifier notifier) {
+	public TradingHaltSwitch(@Value("${damdam.control.halt-file-path}") String haltFilePath, Notifier notifier,
+			ApplicationEventPublisher eventPublisher) {
 		this.haltFile = Path.of(haltFilePath);
 		this.notifier = notifier;
+		this.eventPublisher = eventPublisher;
 	}
 
 	// 결정 시점마다 파일을 확인한다. 상태가 바뀔 때(정지 시작, 정지 해제)만 한 번씩 알린다
@@ -36,6 +40,8 @@ public class TradingHaltSwitch {
 		} else if (!halted && lastHalted) {
 			log.warn("[정지 파일] 파일이 사라져 자동 매도와 OCO 등록을 재개합니다.");
 			notifier.send("halt-off", "[담담] 정지 파일이 사라져 자동 매도와 OCO 등록을 재개합니다.");
+			// 재개 즉시 OCO 상태를 한 번 점검한다 (OcoPeriodicCheckService)
+			eventPublisher.publishEvent(new TradingResumedEvent());
 		}
 		lastHalted = halted;
 		return halted;

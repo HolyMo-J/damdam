@@ -45,7 +45,7 @@ class AtrOcoManagementServiceTest {
 		holdingsService = mock(HoldingsService.class);
 		atrService = mock(AtrService.class);
 		conditionalOrderService = mock(ConditionalOrderService.class);
-		service = newService(new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}));
+		service = newService(new TradingHaltSwitch("build/tmp/test-no-halt-file", (key, message) -> {}, event -> {}));
 	}
 
 	private AtrOcoManagementService newService(TradingHaltSwitch haltSwitch) {
@@ -166,7 +166,7 @@ class AtrOcoManagementServiceTest {
 	void haltFileStopsRegistrationButNotCancellation(@TempDir Path tempDir) throws IOException {
 		Path haltFile = tempDir.resolve("STOP");
 		Files.writeString(haltFile, "");
-		AtrOcoManagementService halted = newService(new TradingHaltSwitch(haltFile.toString(), (key, message) -> {}));
+		AtrOcoManagementService halted = newService(new TradingHaltSwitch(haltFile.toString(), (key, message) -> {}, event -> {}));
 		givenHoldings(holding("5"));
 		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
 
