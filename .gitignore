@@ -14,7 +14,7 @@ bot/.gradle/
 *.class
 
 # Python
-analysis/__pycache__/
+analysis/**/__pycache__/
 analysis/venv/
 analysis/.venv/
 
