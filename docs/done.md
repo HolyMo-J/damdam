@@ -100,6 +100,7 @@
 - 해외 종목 시간 청산을 알림만 하도록 수정 (`HoldingTimeExitService`): 통화가 KRW가 아니면 관리 범위(`ManagedScopeGate`)와 무관하게 5거래일 경과 시 디스코드 알림만 보내고 자동 매도는 하지 않음 (`time-exit-overseas-{종목}` 알림 키). 기존에는 관리 범위 안의 해외 종목도 자동 매도 대상이었음. 단위 테스트로 해외/국내 분기 확인 (`HoldingTimeExitServiceTest`)
 - 시간 청산 알림 경로를 디스코드로 연결 (`HoldingTimeExitService`): 매수 체결일 미확인, 관리 범위 밖, 주문 한도 초과, 자동 매도 실패, 자동 매도 접수 성공을 로그 대신 디스코드로 알림 (종목+종류별 알림 키로 분리). 매도 체결도 알리도록 `OrderEventWebSocketHandler`에 추가하되, 시간 청산으로 판 것만이 아니라 OCO 익절/손절 트리거를 포함한 모든 매도 체결을 알리는 방식으로 결정 (별도 상관관계 추적 코드 없이 이미 있는 SELL FILL 처리 지점 하나로 커버). 관련 단위 테스트 추가
 - ATR 계산에서 오늘 날짜 봉 제외 (`AtrService`): 공식 문서(GET /api/v1/candles)에 첫 봉이 장중 진행 중인 캔들인지 명시돼 있지 않음을 확인. 문서로 확정할 수 없어 확인 여부와 무관하게, 조회한 캔들 중 타임스탬프가 오늘 날짜인 것을 걸러낸 뒤 계산하도록 방어 코드 추가. 여유분 1개를 더 조회해서 오늘 봉이 섞여도 기간을 채울 수 있게 하고, 그래도 부족하면 명확한 예외로 실패(기존 알림 경로가 처리). 단위 테스트 3개 추가 (`AtrServiceTest`)
+- OCO 정기 점검 추가 (`OcoPeriodicCheckService`): 기존에는 `ensureOco`가 웹소켓 재연결/봇 시작 때(`OrderResyncService.resync`)만 호출돼, 그 사이 OCO 등록 실패나 매도 체결 직후 보유 조회 지연이 있으면 다음 재연결 전까지 손절 보호가 빌 수 있었음. 관리 종목이 소수(단타 위주)라 순차 호출로도 공식 문서 기준 초당 호출 제한(조건주문 조회 10회, 등록/수정 5회, 보유조회 5회)에 여유가 있어 1분 간격 상시 점검을 추가하고, `TradingHaltSwitch`가 정지 파일 해제 시 `TradingResumedEvent`를 발행해 즉시 한 번 더 점검하게 함. 실제로 보정이 있으면 디스코드로 알림. 단위 테스트 추가 (`OcoPeriodicCheckServiceTest`, `TradingHaltSwitchTest`)
 
 ## 2단계: 과열 급락 반등 전략 백테스트
 
