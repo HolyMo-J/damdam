@@ -19,17 +19,23 @@ public class MarketDataService {
 		this.tokenService = tokenService;
 	}
 
-	// 최신순(timestamp 내림차순)으로 반환한다. count는 최대 200
+	// 최신순(timestamp 내림차순)으로 반환한다. count는 최대 200. 항상 수정주가(adjusted=true) 기준
 	public List<Candle> getDailyCandles(String symbol, int count) {
-		return getDailyCandlesPage(symbol, count, null).candles();
+		return getDailyCandlesPage(symbol, count, null, true).candles();
 	}
 
-	// before를 지정하면 그 시각 이전(포함) 페이지를 반환한다. 과거로 계속 페이지네이션할 때 사용 (2단계 백테스트 데이터 수집용)
+	// before를 지정하면 그 시각 이전(포함) 페이지를 반환한다. 과거로 계속 페이지네이션할 때 사용 (2단계 백테스트 데이터 수집용). 수정주가 기준(adjusted=true)
 	public CandlePageResponse getDailyCandlesPage(String symbol, int count, String before) {
+		return getDailyCandlesPage(symbol, count, before, true);
+	}
+
+	// adjusted=false로 원본 시세를 받을 수 있다 (권리락/배당락/액면분할 감지용, 2단계 백테스트 데이터 수집)
+	public CandlePageResponse getDailyCandlesPage(String symbol, int count, String before, boolean adjusted) {
 		var builder = UriComponentsBuilder.fromPath("/api/v1/candles")
 			.queryParam("symbol", symbol)
 			.queryParam("interval", "1d")
-			.queryParam("count", count);
+			.queryParam("count", count)
+			.queryParam("adjusted", adjusted);
 		if (before != null) {
 			builder.queryParam("before", before);
 		}

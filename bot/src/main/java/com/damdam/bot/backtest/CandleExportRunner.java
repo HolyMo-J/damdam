@@ -31,8 +31,13 @@ public class CandleExportRunner implements CommandLineRunner {
 			return;
 		}
 
-		Path outputCsv = Path.of("..", "analysis", "data", symbol.get() + "_daily.csv");
-		int count = exporter.exportDailyHistory(symbol.get(), outputCsv);
-		log.info("[캔들 수집] {} 총 {}개 봉 수집 완료.", symbol.get(), count);
+		Path adjustedCsv = Path.of("..", "analysis", "data", symbol.get() + "_daily.csv");
+		Path unadjustedCsv = Path.of("..", "analysis", "data", symbol.get() + "_daily_unadjusted.csv");
+
+		int adjustedCount = exporter.exportDailyHistory(symbol.get(), adjustedCsv, true);
+		log.info("[캔들 수집] {} 수정주가 총 {}개 봉 수집 완료.", symbol.get(), adjustedCount);
+
+		int unadjustedCount = exporter.exportDailyHistory(symbol.get(), unadjustedCsv, false);
+		log.info("[캔들 수집] {} 원본 시세 총 {}개 봉 수집 완료.", symbol.get(), unadjustedCount);
 	}
 }

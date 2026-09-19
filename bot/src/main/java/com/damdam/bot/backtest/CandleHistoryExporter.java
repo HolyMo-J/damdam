@@ -31,13 +31,18 @@ public class CandleHistoryExporter {
 		this.marketDataService = marketDataService;
 	}
 
-	// 반환값: 수집한 캔들 개수
+	// 반환값: 수집한 캔들 개수. 수정주가(adjusted=true) 기준
 	public int exportDailyHistory(String symbol, Path outputCsv) {
+		return exportDailyHistory(symbol, outputCsv, true);
+	}
+
+	// adjusted=false를 넘기면 원본 시세를 수집한다 (권리락/배당락/액면분할 감지용)
+	public int exportDailyHistory(String symbol, Path outputCsv, boolean adjusted) {
 		List<Candle> all = new ArrayList<>();
 		String before = null;
 
 		for (int page = 0; page < MAX_PAGES; page++) {
-			CandlePageResponse response = fetchPageWithRetry(symbol, before);
+			CandlePageResponse response = fetchPageWithRetry(symbol, before, adjusted);
 			if (response == null || response.candles().isEmpty()) {
 				break;
 			}
@@ -58,9 +63,9 @@ public class CandleHistoryExporter {
 		return all.size();
 	}
 
-	private CandlePageResponse fetchPageWithRetry(String symbol, String before) {
+	private CandlePageResponse fetchPageWithRetry(String symbol, String before, boolean adjusted) {
 		try {
-			return marketDataService.getDailyCandlesPage(symbol, PAGE_SIZE, before);
+			return marketDataService.getDailyCandlesPage(symbol, PAGE_SIZE, before, adjusted);
 		} catch (RestClientResponseException e) {
 			if (e.getStatusCode().value() != 429) {
 				throw e;
@@ -68,7 +73,7 @@ public class CandleHistoryExporter {
 			long waitMs = readRetryAfterMs(e).orElse(DEFAULT_RETRY_AFTER_MS);
 			log.warn("[캔들 수집] {} 호출 제한(429). {}ms 대기 후 재시도합니다.", symbol, waitMs);
 			sleep(waitMs);
-			return marketDataService.getDailyCandlesPage(symbol, PAGE_SIZE, before);
+			return marketDataService.getDailyCandlesPage(symbol, PAGE_SIZE, before, adjusted);
 		}
 	}
 
