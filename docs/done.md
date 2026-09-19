@@ -98,6 +98,7 @@
 - CLAUDE.md 작업 규칙에 두 가지 추가: 새로 발견한 문제는 실전 전환을 막는지로 처리 여부를 가른다, 외부 수정 제안은 코드와 공식 문서로 검증 후 판단한다. 참고 문서 목록에 docs/review-tasks.md 추가
 - 리뷰 항목 하나를 끝낼 때 쓰는 마무리 스킬 추가 (`.claude/skills/review-done`): 관련 테스트 실행, 커밋 승인, docs/review-tasks.md 완료 표시와 todo/done 갱신, 다음 항목 안내까지 절차대로 진행. 공식 문서 확인 결과 슬래시 커맨드와 스킬이 사실상 병합돼 있어 다단계 워크플로우 권장 방식인 스킬로 만들고 `disable-model-invocation: true`로 명시적 호출만 허용
 - 해외 종목 시간 청산을 알림만 하도록 수정 (`HoldingTimeExitService`): 통화가 KRW가 아니면 관리 범위(`ManagedScopeGate`)와 무관하게 5거래일 경과 시 디스코드 알림만 보내고 자동 매도는 하지 않음 (`time-exit-overseas-{종목}` 알림 키). 기존에는 관리 범위 안의 해외 종목도 자동 매도 대상이었음. 단위 테스트로 해외/국내 분기 확인 (`HoldingTimeExitServiceTest`)
+- 시간 청산 알림 경로를 디스코드로 연결 (`HoldingTimeExitService`): 매수 체결일 미확인, 관리 범위 밖, 주문 한도 초과, 자동 매도 실패, 자동 매도 접수 성공을 로그 대신 디스코드로 알림 (종목+종류별 알림 키로 분리). 매도 체결도 알리도록 `OrderEventWebSocketHandler`에 추가하되, 시간 청산으로 판 것만이 아니라 OCO 익절/손절 트리거를 포함한 모든 매도 체결을 알리는 방식으로 결정 (별도 상관관계 추적 코드 없이 이미 있는 SELL FILL 처리 지점 하나로 커버). 관련 단위 테스트 추가
 
 ## 2단계: 과열 급락 반등 전략 백테스트
 
