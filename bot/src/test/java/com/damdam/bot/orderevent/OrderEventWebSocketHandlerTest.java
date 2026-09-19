@@ -18,6 +18,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -74,7 +76,7 @@ class OrderEventWebSocketHandlerTest {
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-noop.csv");
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), (key, message) -> {}, () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 	}
@@ -85,7 +87,7 @@ class OrderEventWebSocketHandlerTest {
 		ObjectMapper objectMapper = new ObjectMapper();
 		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter(csvPath.toString());
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
-			newUnreachableAtrOcoManagementService(), () -> {}, () -> {});
+			newUnreachableAtrOcoManagementService(), (key, message) -> {}, () -> {}, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
 
@@ -93,6 +95,35 @@ class OrderEventWebSocketHandlerTest {
 		assertTrue(csvContent.contains("test-order-1"));
 		assertTrue(csvContent.contains("AAPL"));
 		assertTrue(csvContent.contains("FILL"));
+	}
+
+	// 매도 체결(OCO 트리거 포함)은 시간 청산 여부와 무관하게 항상 알림을 보내야 한다
+	@Test
+	void sellFillNotifies() throws Exception {
+		String sellFillJson = FILL_EVENT_JSON.replace("\"side\": \"BUY\"", "\"side\": \"SELL\"");
+		ObjectMapper objectMapper = new ObjectMapper();
+		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-sell.csv");
+		List<String> alertKeys = new ArrayList<>();
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
+			newUnreachableAtrOcoManagementService(), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
+
+		handler.handleTextMessage(null, new TextMessage(sellFillJson));
+
+		assertTrue(alertKeys.contains("sell-fill-AAPL"));
+	}
+
+	// 매수 체결은 매도 체결 알림 대상이 아니다
+	@Test
+	void buyFillDoesNotTriggerSellFillNotification() throws Exception {
+		ObjectMapper objectMapper = new ObjectMapper();
+		TradeRecordWriter tradeRecordWriter = new TradeRecordWriter("build/tmp/test-trades-buy.csv");
+		List<String> alertKeys = new ArrayList<>();
+		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, objectMapper, tradeRecordWriter,
+			newUnreachableAtrOcoManagementService(), (key, message) -> alertKeys.add(key), () -> {}, () -> {});
+
+		handler.handleTextMessage(null, new TextMessage(FILL_EVENT_JSON));
+
+		assertTrue(alertKeys.stream().noneMatch(key -> key.startsWith("sell-fill-")));
 	}
 
 	// BUY 체결 시 OCO 갱신을 시도하지만, 네트워크로 나가지 않는 가짜 주소라 실패하고 내부에서 로그로만 처리된다
@@ -120,7 +151,7 @@ class OrderEventWebSocketHandlerTest {
 		int[] connected = {0};
 		OrderEventWebSocketHandler handler = new OrderEventWebSocketHandler(3L, new ObjectMapper(),
 			new TradeRecordWriter("build/tmp/test-trades-noop.csv"), newUnreachableAtrOcoManagementService(),
-			() -> connected[0]++, () -> {});
+			(key, message) -> {}, () -> connected[0]++, () -> {});
 
 		handler.handleTextMessage(null, new TextMessage(REJECTED_ACK_JSON));
 		assertEquals(0, connected[0]);

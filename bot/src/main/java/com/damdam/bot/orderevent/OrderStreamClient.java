@@ -89,7 +89,7 @@ public class OrderStreamClient {
 		WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
 		headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken());
 		var handler = new OrderEventWebSocketHandler(accountSeq, objectMapper, tradeRecordWriter, atrOcoManagementService,
-			this::onConnected, this::onDisconnected);
+			notifier, this::onConnected, this::onDisconnected);
 
 		webSocketClient.execute(handler, headers, ENDPOINT)
 			.whenComplete((session, error) -> {

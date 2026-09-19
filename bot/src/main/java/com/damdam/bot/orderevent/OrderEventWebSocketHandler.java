@@ -1,6 +1,7 @@
 package com.damdam.bot.orderevent;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
+import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.records.TradeRecordWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,15 +22,17 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 	private final ObjectMapper objectMapper;
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
+	private final Notifier notifier;
 	private final Runnable onConnected;
 	private final Runnable onDisconnected;
 
 	OrderEventWebSocketHandler(long accountSeq, ObjectMapper objectMapper, TradeRecordWriter tradeRecordWriter,
-			AtrOcoManagementService atrOcoManagementService, Runnable onConnected, Runnable onDisconnected) {
+			AtrOcoManagementService atrOcoManagementService, Notifier notifier, Runnable onConnected, Runnable onDisconnected) {
 		this.accountSeq = accountSeq;
 		this.objectMapper = objectMapper;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
+		this.notifier = notifier;
 		this.onConnected = onConnected;
 		this.onDisconnected = onDisconnected;
 	}
@@ -84,6 +87,9 @@ class OrderEventWebSocketHandler extends TextWebSocketHandler {
 			} else if ("SELL".equals(order.side()) && "FILL".equals(event)) {
 				// 부분 체결(PARTIAL_FILL)에는 반응하지 않는다. 진행 중인 매도(OCO 자신의 매도 포함)를 건드리지 않기 위해 완전 체결만 처리한다
 				atrOcoManagementService.syncAfterSellFill(accountSeq, order.symbol());
+				notifier.send("sell-fill-" + order.symbol(), "[담담] " + order.symbol() + " 매도 체결: "
+					+ execution.filledQuantity() + "주, 평균 " + execution.averageFilledPrice() + order.currency()
+					+ ", 총 " + execution.filledAmount() + order.currency());
 			}
 		}
 	}

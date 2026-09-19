@@ -48,7 +48,11 @@ class HoldingTimeExitServiceTest {
 	private ManagedScopeGate managedScopeGate;
 	private TradingHaltSwitch haltSwitch;
 	private final List<String> alerts = new ArrayList<>();
-	private final Notifier fakeNotifier = (key, message) -> alerts.add(key);
+	private final List<String> alertMessages = new ArrayList<>();
+	private final Notifier fakeNotifier = (key, message) -> {
+		alerts.add(key);
+		alertMessages.add(message);
+	};
 
 	@BeforeEach
 	void setUp(@TempDir Path tempDir) throws IOException {
@@ -108,5 +112,78 @@ class HoldingTimeExitServiceTest {
 		service.checkAndAlert();
 
 		verify(orderPlacementService).placeMarketSell(eq(ACCOUNT), anyString(), eq(SYMBOL), eq("10"));
+	}
+
+	@Test
+	void missingEntryTimeNotifies() {
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of());
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-noentry-" + SYMBOL));
+		verify(orderPlacementService, never()).placeMarketSell(anyLong(), anyString(), anyString(), anyString());
+	}
+
+	@Test
+	void outOfManagedScopeNotifies(@TempDir Path tempDir) throws IOException {
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		// 관리 범위 시작 시각을 매수 체결일보다 나중으로 잡아서, 이 종목이 범위 밖(기능을 켜기 전부터 보유)이 되게 한다
+		Path scopeStartFile = tempDir.resolve("scope-start-after-entry");
+		Files.writeString(scopeStartFile, OffsetDateTime.now().toString());
+		managedScopeGate = new ManagedScopeGate(scopeStartFile.toString());
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-scope-" + SYMBOL));
+		verify(orderPlacementService, never()).placeMarketSell(anyLong(), anyString(), anyString(), anyString());
+	}
+
+	@Test
+	void orderValueOverLimitNotifies() {
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		// 한도를 매우 작게 잡아서(1원) 예상 주문 금액(10주 * 90원 = 900원)이 항상 한도를 넘게 한다
+		HoldingTimeExitService service = new HoldingTimeExitService(accountService, holdingsService, orderService,
+			orderPlacementService, autoSellGuard, managedScopeGate, haltSwitch, fakeNotifier, "1", "1");
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-limit-" + SYMBOL));
+		verify(orderPlacementService, never()).placeMarketSell(anyLong(), anyString(), anyString(), anyString());
+	}
+
+	@Test
+	void autoSellFailureNotifies() {
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.FAILED, null, null, "잔고 부족"));
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-failed-" + SYMBOL));
+	}
+
+	@Test
+	void autoSellPlacedNotifies() {
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.PLACED, "order-1", null, null));
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-placed-" + SYMBOL));
 	}
 }

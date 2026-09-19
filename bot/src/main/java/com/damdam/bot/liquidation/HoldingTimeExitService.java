@@ -77,6 +77,8 @@ public class HoldingTimeExitService {
 			// 조회 범위 안에서 매수 기록을 못 찾았다는 건, 그보다 더 오래전부터 보유 중이라는 뜻이다
 			log.warn("[시간 청산 알림] {} 매수 체결일을 최근 {}일 안에서 찾지 못했습니다. 그보다 오래 보유 중이라 기준(5거래일)을 이미 넘었을 가능성이 높습니다. 청산을 검토하세요.",
 				item.symbol(), ORDER_HISTORY_LOOKBACK_DAYS);
+			notifier.send("time-exit-noentry-" + item.symbol(), "[담담] " + item.symbol() + " 매수 체결일을 최근 "
+				+ ORDER_HISTORY_LOOKBACK_DAYS + "일 안에서 찾지 못했습니다. 그보다 오래 보유 중이라 기준(5거래일)을 이미 넘었을 가능성이 높습니다. 청산을 검토하세요.");
 			return;
 		}
 
@@ -98,6 +100,8 @@ public class HoldingTimeExitService {
 		if (!withinManagedScope) {
 			log.warn("[시간 청산 알림] {} 보유 {}거래일 경과 (매수 체결일: {}), 이 기능을 켜기 전부터 갖고 있던 종목이라 자동 매도 대상에서 제외합니다. 청산을 검토하세요.",
 				item.symbol(), heldTradingDays, entryTime.toLocalDate());
+			notifier.send("time-exit-scope-" + item.symbol(), "[담담] " + item.symbol() + " 보유 " + heldTradingDays
+				+ "거래일 경과 (매수 체결일: " + entryTime.toLocalDate() + "). 이 기능을 켜기 전부터 갖고 있던 종목이라 자동 매도 대상에서 제외했습니다. 직접 확인하세요.");
 			return;
 		}
 
@@ -121,6 +125,8 @@ public class HoldingTimeExitService {
 		if (orderValue.compareTo(limit) > 0) {
 			log.warn("[시간 청산] {} 예상 주문 금액 {}{}이 한도({}{})를 넘어 자동 매도를 건너뜁니다. 직접 확인해주세요.",
 				item.symbol(), orderValue, item.currency(), limit, item.currency());
+			notifier.send("time-exit-limit-" + item.symbol(), "[담담] " + item.symbol() + " 예상 주문 금액 " + orderValue
+				+ item.currency() + "이 한도(" + limit + item.currency() + ")를 넘어 시간 청산 자동 매도를 건너뛰었습니다. 이 포지션은 한도 안으로 줄이기 전까지 계속 건너뛰어집니다. 직접 확인하세요.");
 			return;
 		}
 
@@ -134,6 +140,9 @@ public class HoldingTimeExitService {
 
 		if (result.status() == OrderPlacementResult.Status.FAILED) {
 			log.warn("[시간 청산] {} 자동 매도 실패: {}", item.symbol(), result.errorMessage());
+			// 다음 재시도는 다음 영업일 스케줄까지 없으므로, 실패했다는 사실을 반드시 바로 알린다
+			notifier.send("time-exit-failed-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 자동 매도가 실패했습니다: "
+				+ result.errorMessage() + ". 다음 재시도는 다음 영업일이니 직접 확인하세요.");
 			return;
 		}
 		if (result.status() == OrderPlacementResult.Status.SIMULATED) {
@@ -141,6 +150,9 @@ public class HoldingTimeExitService {
 			log.info("[시간 청산] {} 모의 실행이라 안전장치 기록과 OCO 정리를 건너뜁니다.", item.symbol());
 			return;
 		}
+		log.warn("[시간 청산] {} 자동 매도 주문 접수됨 (orderId={})", item.symbol(), result.orderId());
+		notifier.send("time-exit-placed-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 자동 매도 주문이 접수됐습니다 (orderId="
+			+ result.orderId() + "). 체결되면 별도로 알립니다.");
 		autoSellGuard.recordAttempt(isLoss);
 		// OCO는 여기서 취소하지 않는다. 접수만 된 상태에서 취소하면 매도가 거부되거나 안 팔려도 손절 보호가 사라진다.
 		// 매도 체결(FILL) 이벤트를 받은 뒤 AtrOcoManagementService.syncAfterSellFill이 정리한다
