@@ -80,13 +80,21 @@ public class HoldingTimeExitService {
 			return;
 		}
 
-		boolean withinManagedScope = entryTime.isAfter(managedScopeGate.scopeStart());
-
 		long heldTradingDays = tradingDayCalculator.tradingDaysBetween(entryTime.toLocalDate(), LocalDate.now());
 		if (heldTradingDays < MAX_HOLD_TRADING_DAYS) {
 			return;
 		}
 
+		if (!"KRW".equals(item.currency())) {
+			// 해외 종목은 자동 매도하지 않는다 (docs/strategy.md, 2026-09-19 결정). 관리 범위(ManagedScopeGate)와 무관하게 항상 알린다
+			log.warn("[시간 청산 알림] {} 보유 {}거래일 경과 (매수 체결일: {}), 해외 종목이라 자동 매도 대상에서 제외하고 알림만 보냅니다.",
+				item.symbol(), heldTradingDays, entryTime.toLocalDate());
+			notifier.send("time-exit-overseas-" + item.symbol(), "[담담] " + item.symbol() + " 보유 " + heldTradingDays
+				+ "거래일 경과 (매수 체결일: " + entryTime.toLocalDate() + "). 해외 종목은 자동 매도하지 않으니 직접 확인하세요.");
+			return;
+		}
+
+		boolean withinManagedScope = entryTime.isAfter(managedScopeGate.scopeStart());
 		if (!withinManagedScope) {
 			log.warn("[시간 청산 알림] {} 보유 {}거래일 경과 (매수 체결일: {}), 이 기능을 켜기 전부터 갖고 있던 종목이라 자동 매도 대상에서 제외합니다. 청산을 검토하세요.",
 				item.symbol(), heldTradingDays, entryTime.toLocalDate());
