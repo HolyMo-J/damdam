@@ -96,6 +96,7 @@
 
 ### 외부 리뷰 반영 (docs/review-tasks.md)
 - CLAUDE.md 작업 규칙에 두 가지 추가: 새로 발견한 문제는 실전 전환을 막는지로 처리 여부를 가른다, 외부 수정 제안은 코드와 공식 문서로 검증 후 판단한다. 참고 문서 목록에 docs/review-tasks.md 추가
+- 리뷰 항목 하나를 끝낼 때 쓰는 마무리 스킬 추가 (`.claude/skills/review-done`): 관련 테스트 실행, 커밋 승인, docs/review-tasks.md 완료 표시와 todo/done 갱신, 다음 항목 안내까지 절차대로 진행. 공식 문서 확인 결과 슬래시 커맨드와 스킬이 사실상 병합돼 있어 다단계 워크플로우 권장 방식인 스킬로 만들고 `disable-model-invocation: true`로 명시적 호출만 허용
 
 ## 2단계: 과열 급락 반등 전략 백테스트
 
