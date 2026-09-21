@@ -15,7 +15,18 @@ from backtest.periods import CONFIRM_START, load_search_data
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
 COMMISSION = 0.00015  # 국내 매수, 매도 각각 (GET /api/v1/commissions 실제 조회값)
-SELL_TAX = 0.0020  # 국내 매도세. 2015~2026 연혁은 아직 확인하지 못했다. 확인 전에는 결과를 보고하지 않는다
+# 국내 매도세(증권거래세 + 농어촌특별세 합계) 연혁. 매매 체결일 기준이다. 2019-05-30 이후는 코스피와 코스닥 합계가 같다.
+# 확인한 출처: 2019-05-30 인하(0.30%에서 0.25%)는 금융투자협회와 언론 보도, 2021년 이후는 두 곳의 정리가 일치.
+# 확인하지 못한 것: 2015-06-15부터 2019-05-29까지 0.30%가 유지됐다는 점 (2019년 인하 직전이 0.30%라는 것만 확인)
+SELL_TAX_SCHEDULE = [
+    ("2015-06-15", 0.0030),
+    ("2019-05-30", 0.0025),
+    ("2021-01-01", 0.0023),
+    ("2023-01-01", 0.0020),
+    ("2024-01-01", 0.0018),
+    ("2025-01-01", 0.0015),
+    ("2026-01-01", 0.0020),
+]
 MAX_HOLD = 5  # 진입 봉 + 5번째 봉의 시가에 시간 청산 (봇의 5거래일 도달 시 09:05 매도에 대응)
 VOL_WINDOW = 20
 ATR_WINDOW = 14
@@ -51,7 +62,12 @@ class SymbolData:
 
 
 def sell_tax_rate(date):
-    return SELL_TAX
+    """date(YYYY-MM-DD) 시점에 적용되는 매도세율. 표의 시작일이 date 이하인 마지막 행을 쓴다."""
+    rate = SELL_TAX_SCHEDULE[0][1]
+    for start, r in SELL_TAX_SCHEDULE:
+        if start <= date:
+            rate = r
+    return rate
 
 
 def build_symbol(symbol, df, event_dates=()):

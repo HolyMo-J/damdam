@@ -14,8 +14,8 @@ FINAL_PER_TUNE = 554 / 1383
 MARGIN = 1.5  # 최종/확인 구간 100건 기준에 곱하는 여유 계수
 REQUIRED = 100 * MARGIN
 
-DROPS = [0.06, 0.08, 0.10, 0.12, 0.15]
-VMULTS = [1.5, 2, 3, 4]
+DROPS = [0.03, 0.04, 0.05, 0.06, 0.08]
+VMULTS = [1.0, 1.5, 2, 3]
 MID_EXIT = dict(tp=0.03, stop_atr=1.5)  # 빈도는 주로 진입 조건이 정하므로 청산은 중간값으로 고정
 
 if __name__ == "__main__":

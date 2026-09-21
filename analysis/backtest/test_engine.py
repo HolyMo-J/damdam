@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from backtest.engine import COMMISSION, SELL_TAX, Params, build_symbol, signal_indices, simulate
+from backtest.engine import COMMISSION, Params, build_symbol, sell_tax_rate, signal_indices, simulate
 
 T = 25  # 신호일 인덱스, 진입은 26번 봉
 E = T + 1
@@ -81,11 +81,19 @@ class SimulateTest(unittest.TestCase):
         _, tr = sim({E + 1: {"high": 104.0}}, n=E + 5)
         self.assertIsNone(tr)
 
-    def test_비용은_수수료_양쪽과_매도세를_반영한다(self):
-        _, tr = sim()
-        expected = 100 * (1 - COMMISSION - SELL_TAX) / (100 * (1 + COMMISSION)) - 1
+    def test_비용은_수수료_양쪽과_청산일_매도세를_반영한다(self):
+        _, tr = sim()  # 2016년 청산이라 매도세 0.30%
+        expected = 100 * (1 - COMMISSION - 0.0030) / (100 * (1 + COMMISSION)) - 1
         self.assertAlmostEqual(tr["net"], expected)
-        self.assertAlmostEqual(tr["net"], -0.0023, places=4)
+        self.assertAlmostEqual(tr["net"], -0.0033, places=4)
+
+    def test_매도세율은_시행일_기준으로_바뀐다(self):
+        self.assertEqual(sell_tax_rate("2015-06-15"), 0.0030)
+        self.assertEqual(sell_tax_rate("2019-05-29"), 0.0030)
+        self.assertEqual(sell_tax_rate("2019-05-30"), 0.0025)
+        self.assertEqual(sell_tax_rate("2020-12-31"), 0.0025)
+        self.assertEqual(sell_tax_rate("2021-01-01"), 0.0023)
+        self.assertEqual(sell_tax_rate("2024-06-12"), 0.0018)
 
 
 class SignalTest(unittest.TestCase):
