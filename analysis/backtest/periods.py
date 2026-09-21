@@ -1,8 +1,14 @@
 import pandas as pd
 
 
-def load_daily_csv(path):
-    df = pd.read_csv(path, parse_dates=["timestamp"])
+# 가격제한폭이 ±30%로 넓어진 날. 그 전 데이터는 시장 구조가 달라 백테스트에서 제외한다
+BACKTEST_START = "2015-06-15"
+
+
+def load_daily_csv(path, start=BACKTEST_START):
+    df = pd.read_csv(path)
+    df = df[df["timestamp"].str[:10] >= start]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df.sort_values("timestamp").reset_index(drop=True)
 
 
