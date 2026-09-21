@@ -1,4 +1,4 @@
-"""탐색에서 뽑힌 주 후보의 참고 진단 (탐색 구간만 사용, 결과를 analysis/results/primary_reference.json에 저장).
+"""탐색에서 뽑힌 주 후보의 참고 진단 (탐색 구간만 사용, 결과를 analysis/results/primary_reference{VERSION}.json에 저장).
 
 보고만 하고 확인 구간에 넘길지를 바꾸지 않는다 (docs/strategy.md "탐색 실행 규칙").
 실행: analysis/.venv/Scripts/python.exe -m backtest.report_primary  (analysis 폴더에서)
@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.engine import TUNE, Params, date_matched_control, load_universe, run
-from backtest.search import GRID, ORDER, RESULTS_DIR, SLIPPAGE, grid_distance
+from backtest.search import GRID, ORDER, RESULTS_DIR, SLIPPAGE, VERSION, grid_distance
 
 
 def cluster_se(trades):
@@ -22,7 +22,7 @@ def cluster_se(trades):
 
 
 def main():
-    primary = json.loads((RESULTS_DIR / "candidates.json").read_text(encoding="utf-8"))["primary"]
+    primary = json.loads((RESULTS_DIR / f"candidates{VERSION}.json").read_text(encoding="utf-8"))["primary"]
     values = {k: primary[k] for k in ORDER}
     universe = load_universe()
     p = Params(**values, slippage=SLIPPAGE)
@@ -32,7 +32,7 @@ def main():
     out["se_independent"] = float(trades["net"].std() / np.sqrt(len(trades)))
     out["se_cluster_by_week"] = cluster_se(trades)
 
-    attempts = pd.read_csv(RESULTS_DIR / "search_attempts.csv").drop_duplicates("attempt_no")
+    attempts = pd.read_csv(RESULTS_DIR / f"search_attempts{VERSION}.csv").drop_duplicates("attempt_no")
     neigh = attempts[[grid_distance(r, values) == 1 for r in attempts.to_dict("records")]]
     out["neighbors"] = {
         "count": len(neigh),
@@ -54,7 +54,8 @@ def main():
     }
 
     # 청산 규칙 영향을 없앤 비교: 익절과 손절을 사실상 끄고 진입 후 5봉 시가 청산만 한다
-    time_only = Params(values["drop"], values["vmult"], tp=10.0, stop_atr=100.0, slippage=SLIPPAGE)
+    time_only = Params(values["drop"], values["vmult"], tp=10.0, stop_atr=100.0, slippage=SLIPPAGE,
+                       mkt_drop=values["mkt_drop"])
     t_only = run(universe, time_only, periods=(TUNE,))
     out["time_exit_only"] = {
         "n": len(t_only), "mean_net": float(t_only["net"].mean()),
@@ -79,7 +80,7 @@ def main():
     by_year = trades.assign(year=trades["entry_date"].str[:4]).groupby("year")["net"].agg(["count", "mean"])
     out["by_year"] = by_year.round(5).to_dict("index")
 
-    (RESULTS_DIR / "primary_reference.json").write_text(json.dumps(out, ensure_ascii=False, indent=2, default=float), encoding="utf-8")
+    (RESULTS_DIR / f"primary_reference{VERSION}.json").write_text(json.dumps(out, ensure_ascii=False, indent=2, default=float), encoding="utf-8")
 
     print(f"주 후보 {values}: n={out['n']} mean={out['mean_net']:+.3%}")
     print(f"표준오차: 독립 가정 {out['se_independent']:.3%} | 진입 주 단위 군집 {out['se_cluster_by_week']:.3%}")

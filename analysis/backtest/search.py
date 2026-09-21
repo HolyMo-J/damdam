@@ -2,7 +2,7 @@
 
 탐색 구간만 쓴다. 엔진에 periods=(TUNE,)를 넘겨 확인 구간 거래는 시뮬레이션조차 하지 않는다.
 실행: analysis/.venv/Scripts/python.exe -m backtest.search  (analysis 폴더에서)
-산출물: analysis/results/search_attempts.csv, search_meta.json, candidates.json
+산출물: analysis/results/search_attempts{VERSION}.csv, search_meta{VERSION}.json, candidates{VERSION}.json
 """
 import hashlib
 import json
@@ -17,15 +17,17 @@ from backtest.engine import MAX_POSITIONS, TUNE, Params, baseline, date_matched_
 from backtest.periods import CONFIRM_START, FINAL_START
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
+VERSION = "_v2"  # v1(4개 좌표) 결과 파일은 그대로 보존하고 보강 탐색 결과는 접미사를 붙여 저장한다
 
 GRID = {
     "drop": [0.03, 0.04, 0.05, 0.06, 0.08],
     "vmult": [1.0, 1.5, 2, 3],
-    "tp": [0.01, 0.02, 0.03, 0.04, 0.05],
+    "mkt_drop": [0.0, 0.015, 0.02, 0.03, 0.04],  # 0은 시장 급락일 필터 끔
+    "tp": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08],
     "stop_atr": [0.5, 1, 1.5, 2, 3],
 }
-ORDER = ["drop", "vmult", "tp", "stop_atr"]
-START = {"drop": 0.05, "vmult": 1.5, "tp": 0.03, "stop_atr": 1.5}
+ORDER = ["drop", "vmult", "mkt_drop", "tp", "stop_atr"]
+START = {"drop": 0.05, "vmult": 1.5, "mkt_drop": 0.0, "tp": 0.03, "stop_atr": 1.5}
 MAX_ROUNDS = 2
 FLOOR = 375  # 탐색 구간 거래 건수 하한 (최종 구간 100건 x 여유 1.5 / 봉 수 비율 0.40)
 SLIPPAGE = 0.001
@@ -204,8 +206,13 @@ def main():
     primary = searcher.cache[searcher.key(primary_values)]
     backup = pick_backup(searcher, primary_values)
     n_eval = len(searcher.cache)
+    # 첫 탐색(v1, 시장 필터 없음)에서 이미 평가한 조합까지 합친 누적 시도 수
+    v1 = pd.read_csv(RESULTS_DIR / "search_attempts.csv").drop_duplicates("attempt_no")
+    v1_keys = set(zip(v1["drop"], v1["vmult"], [0.0] * len(v1), v1["tp"], v1["stop_atr"]))
+    cumulative = len(v1_keys | set(searcher.cache))
 
-    print(f"\n새로 평가한 조합 {n_eval}개 (상한 {ATTEMPT_LIMIT}), 좌표 하강 {rounds_run}바퀴, 스윕 행 {len(searcher.log)}개")
+    print(f"\n이번 탐색에서 평가한 조합 {n_eval}개, 첫 탐색과 합친 누적 {cumulative}개 (상한 {ATTEMPT_LIMIT}), "
+          f"좌표 하강 {rounds_run}바퀴, 스윕 행 {len(searcher.log)}개")
     print("주 후보:", {k: primary[k] for k in ORDER}, f"n={primary['n']} mean={primary['mean_net']:+.3%} se={primary['se_net']:.3%}")
     print(f"  대조군(전 종목 모든 날)={primary['control_all_days']:+.3%} 대조군(같은 날)={primary['control_same_day']:+.3%}")
     print(f"  2020-02-20~04-30 제외 평균={primary['mean_net_outside_window']:+.3%} (n={primary['n_outside_window']})")
@@ -216,23 +223,24 @@ def main():
     report_reference(searcher, primary_values)
 
     RESULTS_DIR.mkdir(exist_ok=True)
-    pd.DataFrame(searcher.log).to_csv(RESULTS_DIR / "search_attempts.csv", index=False)
+    pd.DataFrame(searcher.log).to_csv(RESULTS_DIR / f"search_attempts{VERSION}.csv", index=False)
     commit, dirty = git_state()
     meta = {
         "engine_commit": commit, "backtest_dir_dirty": dirty, "grid": GRID, "order": ORDER, "start": START,
         "max_rounds": MAX_ROUNDS, "rounds_run": rounds_run, "floor": FLOOR, "slippage": SLIPPAGE,
         "tie_tol": TIE_TOL, "max_positions": MAX_POSITIONS, "confirm_start": CONFIRM_START,
         "final_start": FINAL_START, "sell_tax_schedule": engine.SELL_TAX_SCHEDULE, "commission": engine.COMMISSION,
-        "exclude_window": EXCLUDE_WINDOW, "new_evaluations": n_eval, "attempt_limit": ATTEMPT_LIMIT,
+        "exclude_window": EXCLUDE_WINDOW, "new_evaluations": n_eval, "cumulative_evaluations": cumulative,
+        "attempt_limit": ATTEMPT_LIMIT,
     }
-    (RESULTS_DIR / "search_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (RESULTS_DIR / f"search_meta{VERSION}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     candidates = {
         "primary": {**{k: primary[k] for k in ORDER}, "n_tune": int(primary["n"]), "mean_net_tune": primary["mean_net"]},
         "backup": None if backup is None else {**{k: backup[k] for k in ORDER}, "n_tune": int(backup["n"]),
                                                 "mean_net_tune": backup["mean_net"]},
         "new_evaluations": n_eval, "rounds_run": rounds_run,
     }
-    (RESULTS_DIR / "candidates.json").write_text(json.dumps(candidates, ensure_ascii=False, indent=2), encoding="utf-8")
+    (RESULTS_DIR / f"candidates{VERSION}.json").write_text(json.dumps(candidates, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n저장: {RESULTS_DIR}")
 
 

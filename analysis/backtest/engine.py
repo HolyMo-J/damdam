@@ -43,6 +43,7 @@ class Params:
     tp: float  # 0.03이면 진입가 +3% 익절
     stop_atr: float  # 진입가 - 이 배수 x ATR14 손절
     slippage: float = 0.0  # 진입과 손절, 시간 청산 매도에만 불리하게 적용 (익절 지정가 체결에는 적용 안 함)
+    mkt_drop: float = 0.0  # 0이면 끔. 0.02이면 신호일 30종목 동일가중 일수익률이 -2% 이하인 날의 신호를 제외
 
 
 @dataclass
@@ -59,6 +60,8 @@ class SymbolData:
     eligible: np.ndarray  # 가격 조건과 무관한 신호 자격 (워밍업, 거래정지, 조정 이벤트)
     period: np.ndarray  # 봉별 구간 (TUNE 또는 CONFIRM)
     last_idx: dict  # 구간별 마지막 봉 인덱스
+    ret1: np.ndarray  # 당일 종가 등락률
+    mkt_ret: np.ndarray = None  # 그날 30종목 동일가중 일수익률 (attach_market이 채운다)
 
 
 def sell_tax_rate(date):
@@ -110,7 +113,20 @@ def build_symbol(symbol, df, event_dates=()):
         eligible=eligible,
         period=period,
         last_idx=last_idx,
+        ret1=(close / close.shift() - 1).to_numpy(),
     )
+
+
+def attach_market(universe):
+    """종목별 당일 등락률의 동일가중 평균을 시장 수익률 대용으로 각 종목 데이터에 붙인다.
+
+    지수 데이터가 없어 유니버스로 근사한다. 그날 봉이 있는 종목만 평균에 넣고, 값은 그날 종가 확정 후 알 수 있다.
+    """
+    daily = pd.concat({s: pd.Series(sd.ret1, index=sd.dates) for s, sd in universe.items()}, axis=1)
+    market = daily.mean(axis=1, skipna=True)
+    for sd in universe.values():
+        sd.mkt_ret = market.reindex(sd.dates).to_numpy()
+    return market
 
 
 def load_universe():
@@ -122,6 +138,7 @@ def load_universe():
         symbol = path.name.split("_")[0]
         event_dates = events.loc[events["symbol"] == symbol, "date"]
         universe[symbol] = build_symbol(symbol, load_search_data(path), event_dates)
+    attach_market(universe)
     return universe
 
 
@@ -201,6 +218,8 @@ def simulate(sd, t, p):
 
 def signal_indices(sd, p):
     mask = sd.eligible & (sd.ret3 <= -p.drop) & (sd.vol_ratio >= p.vmult)
+    if p.mkt_drop > 0:
+        mask &= sd.mkt_ret > -p.mkt_drop
     return np.flatnonzero(mask)
 
 

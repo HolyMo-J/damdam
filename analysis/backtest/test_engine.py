@@ -5,7 +5,8 @@ import numpy as np
 import pandas as pd
 
 from backtest.engine import (
-    COMMISSION, CONFIRM, TUNE, Params, build_symbol, date_matched_control, run, sell_tax_rate, signal_indices, simulate,
+    COMMISSION, CONFIRM, TUNE, Params, attach_market, build_symbol, date_matched_control, run, sell_tax_rate,
+    signal_indices, simulate,
 )
 
 T = 25  # 신호일 인덱스, 진입은 26번 봉
@@ -156,6 +157,27 @@ class RunTest(unittest.TestCase):
         expected = (1 - COMMISSION - 0.0030) / (1 + COMMISSION) - 1
         self.assertAlmostEqual(date_matched_control(u, self.P, trades, periods=(TUNE,)), expected)
         self.assertTrue(np.isnan(date_matched_control(u, self.P, trades.iloc[0:0], periods=(TUNE,))))
+
+
+class MarketFilterTest(unittest.TestCase):
+    CRASH = {T: {"close": 90.0, "volume": 5000.0}}
+
+    def test_시장_전체가_급락한_날의_신호는_제외한다(self):
+        u = {"A": build_symbol("A", make_bars(self.CRASH)), "B": build_symbol("B", make_bars(self.CRASH))}
+        attach_market(u)  # 두 종목이 같은 날 -10%라 시장도 -10%
+        self.assertEqual(len(signal_indices(u["A"], Params(0.08, 3, 0.03, 1.0))), 1)
+        self.assertEqual(len(signal_indices(u["A"], Params(0.08, 3, 0.03, 1.0, mkt_drop=0.03))), 0)
+
+    def test_한_종목만_급락하면_시장_평균은_절반이라_임계값에_따라_통과한다(self):
+        u = {"A": build_symbol("A", make_bars(self.CRASH)), "B": build_symbol("B", make_bars())}
+        market = attach_market(u)
+        self.assertAlmostEqual(market.iloc[T], -0.05)
+        self.assertEqual(len(signal_indices(u["A"], Params(0.08, 3, 0.03, 1.0, mkt_drop=0.06))), 1)
+        self.assertEqual(len(signal_indices(u["A"], Params(0.08, 3, 0.03, 1.0, mkt_drop=0.04))), 0)
+
+    def test_필터를_끄면_시장_수익률이_없어도_동작한다(self):
+        sd = build_symbol("A", make_bars(self.CRASH))  # attach_market을 부르지 않음
+        self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 1)
 
 
 if __name__ == "__main__":
