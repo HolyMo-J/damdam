@@ -1,0 +1,22 @@
+{
+  "primary": {
+    "drop": 0.04,
+    "vmult": 1.5,
+    "mkt_drop": 0.0,
+    "tp": 0.05,
+    "stop_atr": 1.5,
+    "n_tune": 680,
+    "mean_net_tune": 0.002335865182471045
+  },
+  "backup": {
+    "drop": 0.04,
+    "vmult": 1.5,
+    "mkt_drop": 0.03,
+    "tp": 0.05,
+    "stop_atr": 1.5,
+    "n_tune": 631,
+    "mean_net_tune": 0.0004805232390266496
+  },
+  "new_evaluations": 33,
+  "rounds_run": 2
+}

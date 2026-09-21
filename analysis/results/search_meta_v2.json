@@ -1,0 +1,102 @@
+{
+  "engine_commit": "efb107838061471c1869ee4efec3e23f57900cd1",
+  "backtest_dir_dirty": false,
+  "grid": {
+    "drop": [
+      0.03,
+      0.04,
+      0.05,
+      0.06,
+      0.08
+    ],
+    "vmult": [
+      1.0,
+      1.5,
+      2,
+      3
+    ],
+    "mkt_drop": [
+      0.0,
+      0.015,
+      0.02,
+      0.03,
+      0.04
+    ],
+    "tp": [
+      0.01,
+      0.02,
+      0.03,
+      0.04,
+      0.05,
+      0.06,
+      0.08
+    ],
+    "stop_atr": [
+      0.5,
+      1,
+      1.5,
+      2,
+      3
+    ]
+  },
+  "order": [
+    "drop",
+    "vmult",
+    "mkt_drop",
+    "tp",
+    "stop_atr"
+  ],
+  "start": {
+    "drop": 0.05,
+    "vmult": 1.5,
+    "mkt_drop": 0.0,
+    "tp": 0.03,
+    "stop_atr": 1.5
+  },
+  "max_rounds": 2,
+  "rounds_run": 2,
+  "floor": 375,
+  "slippage": 0.001,
+  "tie_tol": 1e-09,
+  "max_positions": 5,
+  "confirm_start": "2021-01-28",
+  "final_start": "2024-06-13",
+  "sell_tax_schedule": [
+    [
+      "2015-06-15",
+      0.003
+    ],
+    [
+      "2019-05-30",
+      0.0025
+    ],
+    [
+      "2021-01-01",
+      0.0023
+    ],
+    [
+      "2023-01-01",
+      0.002
+    ],
+    [
+      "2024-01-01",
+      0.0018
+    ],
+    [
+      "2025-01-01",
+      0.0015
+    ],
+    [
+      "2026-01-01",
+      0.002
+    ]
+  ],
+  "commission": 0.00015,
+  "exclude_window": [
+    "2020-02-20",
+    "2020-04-30"
+  ],
+  "new_evaluations": 33,
+  "cumulative_evaluations": 33,
+  "attempt_limit": 200
+}
