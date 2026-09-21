@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from backtest.periods import BACKTEST_START
+
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 # 정수 반올림 노이즈(2015년 이후 대형주는 0.05% 이하)를 넘는 비율 변화만 조정 이벤트로 본다.
 # 30종목 실측에서 0.5%~1% 구간에 1건뿐이라 0.5%로 정했다
@@ -17,6 +19,8 @@ def detect_events(symbol: str, threshold: float = STEP_THRESHOLD) -> pd.DataFram
     unadjusted = pd.read_csv(DATA_DIR / f"{symbol}_daily_unadjusted.csv")
     for df in (adjusted, unadjusted):
         df["date"] = df["timestamp"].str[:10]
+    adjusted = adjusted[adjusted["date"] >= BACKTEST_START]
+    unadjusted = unadjusted[unadjusted["date"] >= BACKTEST_START]
 
     merged = adjusted.merge(unadjusted, on="date", suffixes=("_adj", "_raw"))
     merged["ratio"] = merged["close_raw"] / merged["close_adj"]
