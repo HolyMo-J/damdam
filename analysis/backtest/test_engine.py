@@ -180,5 +180,14 @@ class MarketFilterTest(unittest.TestCase):
         self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 1)
 
 
+class ConfirmDecisionTest(unittest.TestCase):
+    def test_통과_조건은_건수와_평균_순수익_둘_다이다(self):
+        from backtest.confirm import decide
+        self.assertTrue(decide(100, 0.0046))
+        self.assertFalse(decide(99, 0.01))  # 건수 미달
+        self.assertFalse(decide(200, 0.0045))  # 기준 미달
+        self.assertFalse(decide(200, -0.01))  # 기대값 음수
+
+
 if __name__ == "__main__":
     unittest.main()
