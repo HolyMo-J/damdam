@@ -1,9 +1,12 @@
 # 합성 일봉으로 엔진의 체결 경계를 확인한다. 실행: analysis 폴더에서 .venv/Scripts/python.exe -m unittest backtest.test_engine
 import unittest
 
+import numpy as np
 import pandas as pd
 
-from backtest.engine import COMMISSION, Params, build_symbol, sell_tax_rate, signal_indices, simulate
+from backtest.engine import (
+    COMMISSION, CONFIRM, TUNE, Params, build_symbol, date_matched_control, run, sell_tax_rate, signal_indices, simulate,
+)
 
 T = 25  # 신호일 인덱스, 진입은 26번 봉
 E = T + 1
@@ -124,6 +127,35 @@ class SignalTest(unittest.TestCase):
         df = make_bars({10: {"close": 90.0, "volume": 5000.0}})
         sd = build_symbol("TEST", df)
         self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 0)
+
+
+class RunTest(unittest.TestCase):
+    P = Params(drop=0.08, vmult=3, tp=0.03, stop_atr=1.0)
+
+    def universe(self):
+        crash = {T: {"close": 90.0, "volume": 5000.0}}
+        return {"A": build_symbol("A", make_bars(crash)), "B": build_symbol("B", make_bars())}
+
+    def test_보유_봉_수를_기록한다(self):
+        self.assertEqual(sim()[1]["hold_bars"], 5)  # 시간 청산
+        self.assertEqual(sim({E + 1: {"high": 104.0}})[1]["hold_bars"], 1)  # 다음 봉 익절
+
+    def test_구간을_지정하면_다른_구간_거래는_계산하지_않는다(self):
+        u = self.universe()
+        in_tune = run(u, self.P, periods=(TUNE,))
+        self.assertEqual(len(in_tune), 1)
+        self.assertEqual((in_tune.attrs["n_candidates"], in_tune.attrs["n_after_overlap"]), (1, 1))
+        in_confirm = run(u, self.P, periods=(CONFIRM,))  # 합성 봉은 모두 2016년이라 탐색 구간
+        self.assertEqual(len(in_confirm), 0)
+        self.assertEqual(in_confirm.attrs["n_candidates"], 0)
+
+    def test_같은_날_비신호_종목의_평균을_대조군으로_쓴다(self):
+        u = self.universe()
+        trades = run(u, self.P, periods=(TUNE,))
+        # 신호가 없는 B는 평평한 시간 청산이라 2016년 세율 0.30%와 수수료만큼 손실
+        expected = (1 - COMMISSION - 0.0030) / (1 + COMMISSION) - 1
+        self.assertAlmostEqual(date_matched_control(u, self.P, trades, periods=(TUNE,)), expected)
+        self.assertTrue(np.isnan(date_matched_control(u, self.P, trades.iloc[0:0], periods=(TUNE,))))
 
 
 if __name__ == "__main__":

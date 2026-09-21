@@ -195,6 +195,7 @@ def simulate(sd, t, p):
         "tp_boundary": tp_boundary,
         "net": net,
         "r": (exit_price - entry) / (entry - stop),
+        "hold_bars": exit_idx - e,
     }
 
 
@@ -203,45 +204,92 @@ def signal_indices(sd, p):
     return np.flatnonzero(mask)
 
 
-def run(universe, p, max_positions=MAX_POSITIONS):
+def _in_periods(sd, t, periods):
+    """진입 봉(t+1)이 허용된 구간에 있는지. periods가 None이면 모두 허용한다.
+
+    허용되지 않은 구간의 거래는 시뮬레이션 자체를 하지 않아, 확인 구간 결과가 탐색 통계에 섞일 경로를 없앤다.
+    """
+    if periods is None:
+        return True
+    e = t + 1
+    return e < len(sd.period) and int(sd.period[e]) in periods
+
+
+def run(universe, p, max_positions=MAX_POSITIONS, periods=None):
     """신호 후보를 날짜순으로 훑어 동시 보유 상한을 적용하고 실제로 체결되는 거래를 돌려준다.
 
     같은 종목은 이전 거래의 청산일 이후에만 다시 진입한다. 청산일과 같은 날의 재진입도 막는다(보수적).
     상한을 넘는 날에는 그날 신호 중 3일 하락폭이 큰 순으로 채운다.
+    결과 DataFrame의 attrs에 n_candidates(상한과 겹침 제거 전), n_after_overlap(겹침 제거 후)을 남긴다.
     """
     candidates = []
     for sd in universe.values():
         for t in signal_indices(sd, p):
+            if not _in_periods(sd, t, periods):
+                continue
             trade = simulate(sd, t, p)
             if trade is not None:
                 candidates.append(trade)
     candidates.sort(key=lambda tr: (tr["entry_date"], tr["ret3"]))
 
-    accepted, exit_dates, last_exit = [], [], {}
+    accepted, exit_dates, last_exit, n_after_overlap = [], [], {}, 0
     for tr in candidates:
         d = tr["entry_date"]
         if last_exit.get(tr["symbol"], "") >= d:
             continue
+        n_after_overlap += 1
         if sum(1 for x in exit_dates if x >= d) >= max_positions:
             continue
         accepted.append(tr)
         exit_dates.append(tr["exit_date"])
         last_exit[tr["symbol"]] = tr["exit_date"]
-    return pd.DataFrame(accepted)
+    result = pd.DataFrame(accepted)
+    result.attrs["n_candidates"] = len(candidates)
+    result.attrs["n_after_overlap"] = n_after_overlap
+    return result
 
 
-def baseline(universe, p):
-    """대조군: 가격과 거래량 조건 없이 자격을 갖춘 모든 날에 진입하고 같은 청산 규칙을 쓴 결과.
+def baseline(universe, p, periods=None):
+    """대조군 1: 가격과 거래량 조건 없이 자격을 갖춘 모든 날에 진입하고 같은 청산 규칙을 쓴 결과.
 
     신호 조건이 만드는 엣지와 종목군 자체의 상승 드리프트를 구분하기 위한 것이다.
     """
     trades = []
     for sd in universe.values():
         for t in np.flatnonzero(sd.eligible):
+            if not _in_periods(sd, t, periods):
+                continue
             trade = simulate(sd, t, p)
             if trade is not None:
                 trades.append(trade)
     return pd.DataFrame(trades)
+
+
+def date_matched_control(universe, p, signal_trades, periods=None):
+    """대조군 2: 신호 거래와 같은 날 진입한 자격 있는 비신호 종목들의 평균 순수익.
+
+    급락 뒤 반등처럼 시장 전체에 걸린 효과는 같은 날 진입한 다른 종목도 누리므로, 이 값과 비교해야
+    신호 조건이 만드는 몫을 가릴 수 있다. 신호 거래마다 그 진입일의 비신호 평균을 대응시켜 거래 단위로 평균한다.
+    """
+    if len(signal_trades) == 0:
+        return float("nan")
+    by_date = {}
+    for sd in universe.values():
+        signal = set(signal_indices(sd, p).tolist())
+        index_of = {d: i for i, d in enumerate(sd.dates)}
+        for d in signal_trades["entry_date"].unique():
+            i = index_of.get(d)
+            if i is None or i < 1:
+                continue
+            t = i - 1
+            if t in signal or not sd.eligible[t] or not _in_periods(sd, t, periods):
+                continue
+            trade = simulate(sd, t, p)
+            if trade is not None:
+                by_date.setdefault(d, []).append(trade["net"])
+    date_mean = {d: float(np.mean(v)) for d, v in by_date.items()}
+    matched = [date_mean[d] for d in signal_trades["entry_date"] if d in date_mean]
+    return float(np.mean(matched)) if matched else float("nan")
 
 
 def summarize(trades):
