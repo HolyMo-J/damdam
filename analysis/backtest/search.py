@@ -41,6 +41,7 @@ class Searcher:
         self.cache = {}  # 조합 -> 평가 결과 행
         self.baseline_cache = {}  # (tp, stop_atr) -> 대조군 1 평균
         self.log = []
+        self.logged = set()  # 스윕 로그에 이미 행이 남은 조합. new_evaluation은 로그 첫 등장을 뜻한다
 
     @staticmethod
     def key(values):
@@ -108,7 +109,9 @@ class Searcher:
         results = []
         for v in GRID[coord]:
             values = {**current, coord: v}
-            is_new = self.key(values) not in self.cache
+            # 시작점은 스윕 전에 미리 평가되므로, 캐시가 아니라 로그 기준으로 새 평가를 센다
+            is_new = self.key(values) not in self.logged
+            self.logged.add(self.key(values))
             results.append((v, self.evaluate(values), is_new))
         feasible = [(v, row) for v, row, _ in results if row["feasible"]]
         if not feasible:
