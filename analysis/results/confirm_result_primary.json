@@ -1,0 +1,83 @@
+{
+  "kind": "primary",
+  "params": {
+    "drop": 0.04,
+    "vmult": 1.5,
+    "mkt_drop": 0.0,
+    "tp": 0.05,
+    "stop_atr": 1.5
+  },
+  "tune_mean_net": 0.002335865182471045,
+  "tune_n": 680,
+  "n": 377,
+  "n_candidates": 527,
+  "n_after_overlap": 441,
+  "entry_range": [
+    "2021-02-01",
+    "2024-06-03"
+  ],
+  "mean_net": 0.005869016305830455,
+  "median_net": 0.017298822452758378,
+  "se_independent": 0.0023381244840442344,
+  "se_cluster_by_week": 0.0025478410185374267,
+  "win_rate": 0.5888594164456233,
+  "by_reason": {
+    "stop": {
+      "count": 67,
+      "mean": -0.05525
+    },
+    "stop_gap": {
+      "count": 18,
+      "mean": -0.06244
+    },
+    "time": {
+      "count": 127,
+      "mean": -0.00705
+    },
+    "tp": {
+      "count": 148,
+      "mean": 0.04744
+    },
+    "tp_gap": {
+      "count": 17,
+      "mean": 0.05364
+    }
+  },
+  "by_year": {
+    "2021": {
+      "count": 82,
+      "mean": 0.00218
+    },
+    "2022": {
+      "count": 138,
+      "mean": 0.00291
+    },
+    "2023": {
+      "count": 111,
+      "mean": 0.01084
+    },
+    "2024": {
+      "count": 46,
+      "mean": 0.00931
+    }
+  },
+  "control_all_days": -0.0030292069072226225,
+  "control_same_day": -0.0038575809519840396,
+  "distinct_entry_days": 249,
+  "max_positions": 5,
+  "slippage_sensitivity": {
+    "0.0": {
+      "n": 376,
+      "mean_net": 0.0073689297479440875
+    },
+    "0.002": {
+      "n": 376,
+      "mean_net": 0.004390521977015703
+    }
+  },
+  "passed": true,
+  "criteria": {
+    "min_trades": 100,
+    "min_mean_net": 0.0046
+  }
+}
