@@ -180,6 +180,42 @@ class MarketFilterTest(unittest.TestCase):
         self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 1)
 
 
+class CircuitBreakerTest(unittest.TestCase):
+    """포트폴리오 연속 손실 서킷 브레이커 (docs/strategy.md 재설계, 봇의 AutoSellGuard와 같은 발상)."""
+    P = Params(drop=0.08, vmult=3, tp=0.03, stop_atr=1.0)
+    N = 80
+
+    def build(self, name, crash_t, gap_idx=None):
+        overrides = {crash_t: {"close": 90.0, "volume": 5000.0}}
+        if gap_idx is not None:
+            overrides[gap_idx] = {"open": 95.0, "high": 96.0, "low": 94.0}
+        return build_symbol(name, make_bars(overrides, n=self.N))
+
+    def universe(self):
+        return {
+            "L1": self.build("L1", 25, 27),   # 손실(stop_gap), 청산 27
+            "L2": self.build("L2", 32, 34),   # 손실, 청산 34
+            "L3": self.build("L3", 39, 41),   # 손실, 청산 41 (연속 3회 완성)
+            "BLOCKED": self.build("BLOCKED", 42),  # 진입 43, 정지 구간(41~46 거래일) 안이라 막혀야 함
+            "AFTER": self.build("AFTER", 50),  # 진입 51, 정지가 끝난 뒤라 정상 진입해야 함
+        }
+
+    def calendar(self):
+        return build_symbol("CAL", make_bars(n=self.N)).dates
+
+    def test_연속_손실_3회_뒤_정지_기간_안의_신규_진입은_막는다(self):
+        trades = run(self.universe(), self.P, circuit_breaker=(3, 5), calendar=self.calendar())
+        self.assertNotIn("BLOCKED", set(trades["symbol"]))
+
+    def test_정지_기간이_끝나면_다시_진입한다(self):
+        trades = run(self.universe(), self.P, circuit_breaker=(3, 5), calendar=self.calendar())
+        self.assertIn("AFTER", set(trades["symbol"]))
+
+    def test_서킷_브레이커를_주지_않으면_기존과_동일하게_전부_받아들인다(self):
+        trades = run(self.universe(), self.P)
+        self.assertIn("BLOCKED", set(trades["symbol"]))
+
+
 class ConfirmDecisionTest(unittest.TestCase):
     def test_통과_조건은_건수와_평균_순수익_둘_다이다(self):
         from backtest.confirm import decide

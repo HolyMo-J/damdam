@@ -53,6 +53,7 @@ class SymbolData:
     open: np.ndarray
     high: np.ndarray
     low: np.ndarray
+    close: np.ndarray
     volume: np.ndarray
     ret3: np.ndarray
     vol_ratio: np.ndarray
@@ -106,6 +107,7 @@ def build_symbol(symbol, df, event_dates=()):
         open=df["open"].to_numpy(float),
         high=high.to_numpy(float),
         low=low.to_numpy(float),
+        close=close.to_numpy(float),
         volume=volume.to_numpy(),
         ret3=(close / close.shift(RET_DAYS) - 1).to_numpy(),
         vol_ratio=(volume / vol_avg).to_numpy(),
@@ -202,7 +204,9 @@ def simulate(sd, t, p):
         "symbol": sd.symbol,
         "signal_date": sd.dates[t],
         "entry_date": sd.dates[e],
+        "entry_idx": e,
         "exit_date": exit_date,
+        "exit_idx": exit_idx,
         "period": period,
         "ret3": sd.ret3[t],
         "entry": entry,
@@ -234,12 +238,26 @@ def _in_periods(sd, t, periods):
     return e < len(sd.period) and int(sd.period[e]) in periods
 
 
-def run(universe, p, max_positions=MAX_POSITIONS, periods=None):
+def _add_trading_days(date, n, calendar):
+    """calendar(정렬된 거래일 문자열 배열)에서 date로부터 거래일 n일 뒤 날짜. 배열을 넘으면 끝값+1일."""
+    i = int(np.searchsorted(calendar, date))
+    j = i + n
+    if j < len(calendar):
+        return str(calendar[j])
+    return str(pd.Timestamp(calendar[-1]) + pd.Timedelta(days=1))[:10]
+
+
+def run(universe, p, max_positions=MAX_POSITIONS, periods=None, circuit_breaker=None, calendar=None):
     """신호 후보를 날짜순으로 훑어 동시 보유 상한을 적용하고 실제로 체결되는 거래를 돌려준다.
 
     같은 종목은 이전 거래의 청산일 이후에만 다시 진입한다. 청산일과 같은 날의 재진입도 막는다(보수적).
     상한을 넘는 날에는 그날 신호 중 3일 하락폭이 큰 순으로 채운다.
     결과 DataFrame의 attrs에 n_candidates(상한과 겹침 제거 전), n_after_overlap(겹침 제거 후)을 남긴다.
+
+    circuit_breaker=(max_losses, cooldown_days)를 주면 포트폴리오 전체 기준으로 연속 손실(net<0)이
+    max_losses에 도달했을 때 그 청산일로부터 cooldown_days 거래일 동안 신규 진입을 막는다(기존 보유
+    포지션은 그대로 진행). 재개 시 연속 손실 횟수는 0으로 초기화한다. calendar(정렬된 거래일 배열)가
+    함께 있어야 하고, None이면(기본값) 기존 동작과 동일하다.
     """
     candidates = []
     for sd in universe.values():
@@ -251,9 +269,29 @@ def run(universe, p, max_positions=MAX_POSITIONS, periods=None):
                 candidates.append(trade)
     candidates.sort(key=lambda tr: (tr["entry_date"], tr["ret3"]))
 
+    max_losses, cooldown_days = circuit_breaker if circuit_breaker else (None, None)
+    if circuit_breaker:
+        assert calendar is not None, "circuit_breaker를 쓰려면 calendar가 필요하다"
+
     accepted, exit_dates, last_exit, n_after_overlap = [], [], {}, 0
+    pending_exits, consecutive_losses, paused_until = [], 0, None
     for tr in candidates:
         d = tr["entry_date"]
+        if circuit_breaker:
+            pending_exits.sort(key=lambda x: x[0])
+            still_pending = []
+            for exit_date, net in pending_exits:
+                if exit_date < d:
+                    consecutive_losses = consecutive_losses + 1 if net < 0 else 0
+                    if consecutive_losses >= max_losses and paused_until is None:
+                        paused_until = _add_trading_days(exit_date, cooldown_days, calendar)
+                else:
+                    still_pending.append((exit_date, net))
+            pending_exits = still_pending
+            if paused_until is not None and d >= paused_until:
+                paused_until, consecutive_losses = None, 0
+            if paused_until is not None:
+                continue
         if last_exit.get(tr["symbol"], "") >= d:
             continue
         n_after_overlap += 1
@@ -262,6 +300,8 @@ def run(universe, p, max_positions=MAX_POSITIONS, periods=None):
         accepted.append(tr)
         exit_dates.append(tr["exit_date"])
         last_exit[tr["symbol"]] = tr["exit_date"]
+        if circuit_breaker:
+            pending_exits.append((tr["exit_date"], tr["net"]))
     result = pd.DataFrame(accepted)
     result.attrs["n_candidates"] = len(candidates)
     result.attrs["n_after_overlap"] = n_after_overlap
