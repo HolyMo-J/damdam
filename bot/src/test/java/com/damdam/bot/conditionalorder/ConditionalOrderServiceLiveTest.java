@@ -81,13 +81,13 @@ class ConditionalOrderServiceLiveTest {
 				.body(tickError("first.orderPrice", "100", "71200", "71300")));
 		server.expect(requestTo(CREATE_URL))
 			.andExpect(jsonPath("$.clientOrderId").value("atr-oco-005930-1-r1"))
-			.andExpect(jsonPath("$.first.orderPrice").value("71300"))
+			.andExpect(jsonPath("$.first.orderPrice").value("71200"))
 			.andExpect(jsonPath("$.first.triggerPrice").value("71234"))
 			.andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
 				.body(tickError("second.orderPrice", "100", "70200", "70300")));
 		server.expect(requestTo(CREATE_URL))
 			.andExpect(jsonPath("$.clientOrderId").value("atr-oco-005930-1-r2"))
-			.andExpect(jsonPath("$.first.orderPrice").value("71300"))
+			.andExpect(jsonPath("$.first.orderPrice").value("71200"))
 			.andExpect(jsonPath("$.second.orderPrice").value("70200"))
 			.andExpect(jsonPath("$.second.triggerPrice").value("70234"))
 			.andRespond(withSuccess(CREATED, MediaType.APPLICATION_JSON));

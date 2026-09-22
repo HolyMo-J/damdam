@@ -20,11 +20,13 @@ class TickSizeCorrectionTest {
 			""".formatted(field, tickSize, lower, upper);
 	}
 
+	// 감시가에 닿아도 그 가격에 지정가 주문이 새로 걸릴 뿐 즉시 체결되지 않으므로(공식 명세), 익절도 손절처럼
+	// 아래쪽(확실한 체결) 방향으로 옮긴다 (docs/review-tasks.md 10번, 2026-09-23 방향 변경)
 	@Test
-	void takeProfitOrderPriceMovesUp() {
+	void takeProfitOrderPriceMovesDown() {
 		Optional<AtrOcoPricing.Prices> fixed = TickSizeCorrection.apply(body("first.orderPrice", "50", "24500", "24550"), CURRENT);
 
-		assertEquals(new AtrOcoPricing.Prices("24520", "24550", "23980", "23979"), fixed.orElseThrow());
+		assertEquals(new AtrOcoPricing.Prices("24520", "24500", "23980", "23979"), fixed.orElseThrow());
 	}
 
 	@Test
@@ -37,8 +39,8 @@ class TickSizeCorrectionTest {
 	// 서버가 준 값이 예상 방향과 다르면 추측해서 고치지 않는다
 	@Test
 	void refusesWhenTheDirectionIsUnexpected() {
-		// 익절인데 upper가 원래 가격보다 낮음
-		assertTrue(TickSizeCorrection.apply(body("first.orderPrice", "50", "24400", "24500"), CURRENT).isEmpty());
+		// 익절인데 lower가 원래 가격보다 높음
+		assertTrue(TickSizeCorrection.apply(body("first.orderPrice", "50", "24550", "24600"), CURRENT).isEmpty());
 		// 손절인데 lower가 원래 가격보다 높음
 		assertTrue(TickSizeCorrection.apply(body("second.orderPrice", "50", "24000", "24050"), CURRENT).isEmpty());
 	}
@@ -46,7 +48,7 @@ class TickSizeCorrectionTest {
 	// 한 호가를 넘는 큰 이동은 응답이 이상한 것으로 보고 거부한다
 	@Test
 	void refusesMovesLargerThanOneTick() {
-		assertTrue(TickSizeCorrection.apply(body("first.orderPrice", "50", "24500", "24700"), CURRENT).isEmpty());
+		assertTrue(TickSizeCorrection.apply(body("first.orderPrice", "50", "24400", "24450"), CURRENT).isEmpty());
 		assertTrue(TickSizeCorrection.apply(body("second.orderPrice", "50", "23800", "24000"), CURRENT).isEmpty());
 	}
 
