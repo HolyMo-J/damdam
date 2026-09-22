@@ -5,6 +5,7 @@ import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsOverview;
 import com.damdam.bot.holdings.HoldingsService;
+import com.damdam.bot.market.MarketCalendarService;
 import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.orders.Order;
 import com.damdam.bot.orders.OrderExecution;
@@ -49,6 +50,7 @@ class HoldingTimeExitServiceTest {
 	private AutoSellGuard autoSellGuard;
 	private ManagedScopeGate managedScopeGate;
 	private TradingHaltSwitch haltSwitch;
+	private MarketCalendarService marketCalendarService;
 	private final List<String> alerts = new ArrayList<>();
 	private final List<String> alertMessages = new ArrayList<>();
 	private final Notifier fakeNotifier = (key, message) -> {
@@ -69,6 +71,8 @@ class HoldingTimeExitServiceTest {
 		Files.writeString(scopeStartFile, OffsetDateTime.now().minusYears(1).toString());
 		managedScopeGate = new ManagedScopeGate(scopeStartFile.toString());
 		haltSwitch = new TradingHaltSwitch(tempDir.resolve("STOP").toString(), fakeNotifier, event -> {});
+		marketCalendarService = mock(MarketCalendarService.class);
+		when(marketCalendarService.isTradingDay(org.mockito.ArgumentMatchers.any())).thenReturn(true);
 
 		when(accountService.getPrimaryAccountSeq()).thenReturn(ACCOUNT);
 		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
@@ -77,7 +81,7 @@ class HoldingTimeExitServiceTest {
 
 	private HoldingTimeExitService newService() {
 		return new HoldingTimeExitService(accountService, holdingsService, orderService, orderPlacementService,
-			autoSellGuard, managedScopeGate, haltSwitch, fakeNotifier, "100000", "100000");
+			autoSellGuard, managedScopeGate, haltSwitch, fakeNotifier, marketCalendarService, "100000", "100000");
 	}
 
 	private static HoldingItem holding(String currency) {
@@ -153,7 +157,7 @@ class HoldingTimeExitServiceTest {
 		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
 		// 한도를 매우 작게 잡아서(1원) 예상 주문 금액(10주 * 90원 = 900원)이 항상 한도를 넘게 한다
 		HoldingTimeExitService service = new HoldingTimeExitService(accountService, holdingsService, orderService,
-			orderPlacementService, autoSellGuard, managedScopeGate, haltSwitch, fakeNotifier, "1", "1");
+			orderPlacementService, autoSellGuard, managedScopeGate, haltSwitch, fakeNotifier, marketCalendarService, "1", "1");
 
 		service.checkAndAlert();
 

@@ -4,6 +4,7 @@ import com.damdam.bot.account.AccountService;
 import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsService;
+import com.damdam.bot.market.MarketCalendarService;
 import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.orders.Order;
 import com.damdam.bot.orders.OrderPlacementResult;
@@ -39,7 +40,7 @@ public class HoldingTimeExitService {
 	private final Notifier notifier;
 	private final BigDecimal maxAmountKrw;
 	private final BigDecimal maxAmountUsd;
-	private final TradingDayCalculator tradingDayCalculator = new TradingDayCalculator();
+	private final TradingDayCalculator tradingDayCalculator;
 	private final PositionEntryResolver positionEntryResolver = new PositionEntryResolver();
 	// 시간 청산 매도를 접수한 뒤 실제 체결(SELL FILL)이 올 때까지, 연속 손실 판정에 쓸 매수 평단가를 주문ID로 잠깐 들고 있는다.
 	// 봇이 접수와 체결 사이에 재시작되면 이 목록은 비어서 그 1건은 연속 손실 판정에서 빠질 수 있다 (docs/todo.md 참고, 드문 경우라 감수하기로 함)
@@ -48,6 +49,7 @@ public class HoldingTimeExitService {
 	public HoldingTimeExitService(AccountService accountService, HoldingsService holdingsService,
 			OrderService orderService, OrderPlacementService orderPlacementService, AutoSellGuard autoSellGuard,
 			ManagedScopeGate managedScopeGate, TradingHaltSwitch haltSwitch, Notifier notifier,
+			MarketCalendarService marketCalendarService,
 			@Value("${damdam.orders.max-amount-krw}") String maxAmountKrw,
 			@Value("${damdam.orders.max-amount-usd}") String maxAmountUsd) {
 		this.accountService = accountService;
@@ -58,6 +60,7 @@ public class HoldingTimeExitService {
 		this.managedScopeGate = managedScopeGate;
 		this.haltSwitch = haltSwitch;
 		this.notifier = notifier;
+		this.tradingDayCalculator = new TradingDayCalculator(marketCalendarService);
 		this.maxAmountKrw = new BigDecimal(maxAmountKrw);
 		this.maxAmountUsd = new BigDecimal(maxAmountUsd);
 	}
@@ -87,12 +90,13 @@ public class HoldingTimeExitService {
 			return;
 		}
 
-		long heldTradingDays = tradingDayCalculator.tradingDaysBetween(entryTime.toLocalDate(), LocalDate.now());
+		boolean domestic = "KRW".equals(item.currency());
+		long heldTradingDays = tradingDayCalculator.tradingDaysBetween(entryTime.toLocalDate(), LocalDate.now(), domestic);
 		if (heldTradingDays < MAX_HOLD_TRADING_DAYS) {
 			return;
 		}
 
-		if (!"KRW".equals(item.currency())) {
+		if (!domestic) {
 			// 해외 종목은 자동 매도하지 않는다 (docs/strategy.md, 2026-09-19 결정). 관리 범위(ManagedScopeGate)와 무관하게 항상 알린다
 			log.warn("[시간 청산 알림] {} 보유 {}거래일 경과 (매수 체결일: {}), 해외 종목이라 자동 매도 대상에서 제외하고 알림만 보냅니다.",
 				item.symbol(), heldTradingDays, entryTime.toLocalDate());
