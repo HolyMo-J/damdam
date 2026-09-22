@@ -180,6 +180,44 @@ class MarketFilterTest(unittest.TestCase):
         self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 1)
 
 
+class TrendFilterTest(unittest.TestCase):
+    """추세 필터 (docs/strategy.md 확인 구간 게이트 실패 후 재설계, 2026-09-23)."""
+    S = 70  # SMA(60) 워밍업(60봉)을 채우려고 T보다 늦은 신호일을 씀
+
+    def flat_crash(self):
+        # 평평한 가격(100)에서 3거래일 -10% 급락. 장기 이동평균도 100 근처라 급락 후 평균 아래로 내려간다
+        return build_symbol("TEST", make_bars({self.S: {"close": 90.0, "volume": 5000.0}}, n=100))
+
+    def uptrend_crash(self):
+        # 100+i로 꾸준히 오르던 종목이 3거래일 -10% 급락해도, 오른 만큼의 여유 때문에 이동평균 위를 유지한다
+        df = make_bars(n=100)
+        df["close"] = 100.0 + np.arange(100)
+        df.loc[self.S, ["close", "volume"]] = [df.loc[self.S - 3, "close"] * 0.9, 5000.0]
+        return build_symbol("TEST", df)
+
+    def test_평평한_가격의_급락은_이동평균_아래로_내려간다(self):
+        sd = self.flat_crash()
+        self.assertFalse(sd.above_sma[60][self.S])
+        self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0, trend_filter=60))), 0)
+        self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0))), 1)  # 필터를 끄면 그대로 신호
+
+    def test_장기_상승추세_종목의_급락은_이동평균_위를_유지한다(self):
+        sd = self.uptrend_crash()
+        self.assertTrue(sd.above_sma[60][self.S])
+        self.assertEqual(list(signal_indices(sd, Params(0.08, 3, 0.03, 1.0, trend_filter=60))), [self.S])
+
+    def test_이동평균_워밍업이_안_채워지면_배제한다(self):
+        df = make_bars({30: {"close": 90.0, "volume": 5000.0}}, n=100)
+        sd = build_symbol("TEST", df)
+        self.assertFalse(sd.above_sma[60][30])  # 60봉 이전이라 SMA(60)이 NaN
+        self.assertEqual(len(signal_indices(sd, Params(0.08, 3, 0.03, 1.0, trend_filter=60))), 0)
+
+    def test_TREND_WINDOWS에_없는_값은_에러(self):
+        sd = self.flat_crash()
+        with self.assertRaises(AssertionError):
+            signal_indices(sd, Params(0.08, 3, 0.03, 1.0, trend_filter=30))
+
+
 class CircuitBreakerTest(unittest.TestCase):
     """포트폴리오 연속 손실 서킷 브레이커 (docs/strategy.md 재설계, 봇의 AutoSellGuard와 같은 발상)."""
     P = Params(drop=0.08, vmult=3, tp=0.03, stop_atr=1.0)

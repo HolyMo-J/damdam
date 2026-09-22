@@ -32,6 +32,7 @@ VOL_WINDOW = 20
 ATR_WINDOW = 14
 RET_DAYS = 3
 MAX_POSITIONS = 5
+TREND_WINDOWS = (60, 120, 200)  # trend_filter 격자가 쓸 수 있는 이동평균 일수. 신호일 종가까지만 써서 룩어헤드 없음
 
 TUNE, CONFIRM = 0, 1
 
@@ -44,6 +45,7 @@ class Params:
     stop_atr: float  # 진입가 - 이 배수 x ATR14 손절
     slippage: float = 0.0  # 진입과 손절, 시간 청산 매도에만 불리하게 적용 (익절 지정가 체결에는 적용 안 함)
     mkt_drop: float = 0.0  # 0이면 끔. 0.02이면 신호일 30종목 동일가중 일수익률이 -2% 이하인 날의 신호를 제외
+    trend_filter: float = 0.0  # 0이면 끔. 60/120/200이면 신호일 종가가 그 일수 이동평균 위인 종목만 신호로 인정 (TREND_WINDOWS 중 하나여야 함)
 
 
 @dataclass
@@ -62,6 +64,7 @@ class SymbolData:
     period: np.ndarray  # 봉별 구간 (TUNE 또는 CONFIRM)
     last_idx: dict  # 구간별 마지막 봉 인덱스
     ret1: np.ndarray  # 당일 종가 등락률
+    above_sma: dict = None  # {window: bool array} 종가가 그 일수 이동평균 위인지 (TREND_WINDOWS 각각)
     mkt_ret: np.ndarray = None  # 그날 30종목 동일가중 일수익률 (attach_market이 채운다)
 
 
@@ -101,6 +104,10 @@ def build_symbol(symbol, df, event_dates=()):
     )
     period = np.where((dates < CONFIRM_START).to_numpy(), TUNE, CONFIRM)
     last_idx = {p: int(np.flatnonzero(period == p).max()) for p in (TUNE, CONFIRM) if (period == p).any()}
+    above_sma = {}
+    for w in TREND_WINDOWS:
+        sma = close.rolling(w, min_periods=w).mean()
+        above_sma[w] = (close > sma).to_numpy()  # 이동평균이 NaN인 워밍업 구간은 자연히 False
     return SymbolData(
         symbol=symbol,
         dates=dates.to_numpy(),
@@ -116,6 +123,7 @@ def build_symbol(symbol, df, event_dates=()):
         period=period,
         last_idx=last_idx,
         ret1=(close / close.shift() - 1).to_numpy(),
+        above_sma=above_sma,
     )
 
 
@@ -224,6 +232,9 @@ def signal_indices(sd, p):
     mask = sd.eligible & (sd.ret3 <= -p.drop) & (sd.vol_ratio >= p.vmult)
     if p.mkt_drop > 0:
         mask &= sd.mkt_ret > -p.mkt_drop
+    if p.trend_filter > 0:
+        assert int(p.trend_filter) in sd.above_sma, f"trend_filter는 TREND_WINDOWS {TREND_WINDOWS} 중 하나여야 한다"
+        mask &= sd.above_sma[int(p.trend_filter)]
     return np.flatnonzero(mask)
 
 

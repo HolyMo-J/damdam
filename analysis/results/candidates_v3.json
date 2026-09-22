@@ -1,0 +1,27 @@
+{
+  "primary": {
+    "drop": 0.04,
+    "vmult": 1.5,
+    "mkt_drop": 0.0,
+    "trend_filter": 0,
+    "tp": 0.05,
+    "stop_atr": 1.5,
+    "n_tune": 680,
+    "mean_net_tune": 0.002335865182471045,
+    "winner_share_n": 0.12205882352941176,
+    "winner_mean_net": 0.009143940731281849,
+    "nonwinner_mean_net": 0.0013893488163884708
+  },
+  "backup": {
+    "drop": 0.04,
+    "vmult": 1.5,
+    "mkt_drop": 0.03,
+    "trend_filter": 0,
+    "tp": 0.05,
+    "stop_atr": 1.5,
+    "n_tune": 631,
+    "mean_net_tune": 0.0004805232390266496
+  },
+  "new_evaluations": 39,
+  "rounds_run": 2
+}

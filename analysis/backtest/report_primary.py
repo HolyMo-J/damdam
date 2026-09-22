@@ -55,7 +55,7 @@ def main():
 
     # 청산 규칙 영향을 없앤 비교: 익절과 손절을 사실상 끄고 진입 후 5봉 시가 청산만 한다
     time_only = Params(values["drop"], values["vmult"], tp=10.0, stop_atr=100.0, slippage=SLIPPAGE,
-                       mkt_drop=values["mkt_drop"])
+                       mkt_drop=values["mkt_drop"], trend_filter=values.get("trend_filter", 0.0))
     t_only = run(universe, time_only, periods=(TUNE,))
     out["time_exit_only"] = {
         "n": len(t_only), "mean_net": float(t_only["net"].mean()),

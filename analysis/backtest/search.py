@@ -17,7 +17,7 @@ from backtest.engine import MAX_POSITIONS, TUNE, Params, baseline, date_matched_
 from backtest.periods import CONFIRM_START, FINAL_START
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
-VERSION = "_v2"  # v1(4개 좌표) 결과 파일은 그대로 보존하고 보강 탐색 결과는 접미사를 붙여 저장한다
+VERSION = "_v3"  # v1(4개 좌표), v2(+mkt_drop) 결과 파일은 그대로 보존하고 보강 탐색 결과는 접미사를 붙여 저장한다
 
 GRID = {
     "drop": [0.03, 0.04, 0.05, 0.06, 0.08],
@@ -25,9 +25,12 @@ GRID = {
     "mkt_drop": [0.0, 0.015, 0.02, 0.03, 0.04],  # 0은 시장 급락일 필터 끔
     "tp": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08],
     "stop_atr": [0.5, 1, 1.5, 2, 3],
+    "trend_filter": [0, 60, 120, 200],  # 0은 추세 필터 끔
 }
-ORDER = ["drop", "vmult", "mkt_drop", "tp", "stop_atr"]
-START = {"drop": 0.05, "vmult": 1.5, "mkt_drop": 0.0, "tp": 0.03, "stop_atr": 1.5}
+ORDER = ["drop", "vmult", "mkt_drop", "trend_filter", "tp", "stop_atr"]
+# trend_filter를 tp/stop_atr보다 앞에 둔다. 맨 뒤에 두고 한 번 돌려보니 앞선 좌표가 필터 없이 이미
+# 굳어진 상태라 표본 하한(375)을 못 채워 좌표 하강이 채택하지 못했다 (TUNE 구간 결과를 본 뒤의 조정, 2026-09-23).
+START = {"drop": 0.05, "vmult": 1.5, "mkt_drop": 0.0, "trend_filter": 0, "tp": 0.03, "stop_atr": 1.5}
 MAX_ROUNDS = 2
 FLOOR = 375  # 탐색 구간 거래 건수 하한 (최종 구간 100건 x 여유 1.5 / 봉 수 비율 0.40)
 SLIPPAGE = 0.001
@@ -35,11 +38,30 @@ ATTEMPT_LIMIT = 200
 TIE_TOL = 1e-9
 EXCLUDE_WINDOW = ("2020-02-20", "2020-04-30")  # 코로나 급락 시기. 이 창을 뺀 평균을 진단으로 함께 본다
 MIN_BACKUP_DISTANCE = 3  # 차선책은 주 후보와 격자 칸 거리 합이 이만큼 이상 떨어져야 한다
+WINNER_MULTIPLE = 10.0  # 확인 구간 결과와 배율 기준(10배)만 같다. 기준 시점은 다르다 (아래 classify_winners 설명 참고)
+
+
+def classify_winners(universe, multiple=WINNER_MULTIPLE):
+    """로드된 구간(탐색+확인, 2015-06-15~확인 구간 끝) 첫 봉 대비 마지막 봉 종가가 multiple배 이상인 종목.
+
+    확인 구간 결과 문서(docs/strategy.md)가 쓴 "12종목" 정의와는 배율(10배)만 같고 기준 시점이 다르다.
+    그쪽은 "오늘 기준"(최종 구간 이후 가격까지 포함) 가격으로 판정했지만, 여기서는 최종 구간이 봉인돼
+    로드되지 않으므로 확인 구간 끝(2024-06-12) 가격까지만으로 판정한다. 그래서 종목 수가 다르게 나온다
+    (여기서는 3종목: 042700, 086520, 196170). 봉인을 지키는 범위에서 쓸 수 있는 근사치일 뿐, "12종목
+    정의를 재현한 것"이 아니다.
+
+    trend_filter 진단용이다. 이 필터가 손실 종목을 거르는 게 아니라 이미 알려진 승자 편향
+    (2015-06 이후 10배 이상 오른 종목에 성과가 몰리는 현상)을 더 강하게 걸러 넣을 위험이 있어서,
+    필터가 승자/비승자 종목 비중을 어떻게 바꾸는지 시도마다 같이 본다. 다만 승자 표본 자체가
+    시도당 20~35건 수준이라 이 진단만으로 "승자 쏠림이 아니다"를 확정할 수는 없다 (표준오차 참고).
+    """
+    return {s for s, sd in universe.items() if sd.close[-1] / sd.close[0] >= multiple}
 
 
 class Searcher:
-    def __init__(self, universe):
+    def __init__(self, universe, winners=None):
         self.universe = universe
+        self.winners = winners if winners is not None else classify_winners(universe)
         self.cache = {}  # 조합 -> 평가 결과 행
         self.baseline_cache = {}  # (tp, stop_atr) -> 대조군 1 평균
         self.log = []
@@ -96,6 +118,15 @@ class Searcher:
             row[f"share_{reason}"] = float(reasons.get(reason, 0.0))
         row["control_all_days"] = self._baseline_mean(values, slippage)
         row["control_same_day"] = date_matched_control(self.universe, p, trades, periods=(TUNE,))
+
+        is_winner = trades["symbol"].isin(self.winners)
+        n_w, n_nw = int(is_winner.sum()), int((~is_winner).sum())
+        row["winner_n"] = n_w
+        row["winner_share_n"] = float(is_winner.mean())
+        row["winner_mean_net"] = float(net[is_winner].mean()) if n_w else np.nan
+        row["winner_se_net"] = float(net[is_winner].std() / np.sqrt(n_w)) if n_w > 1 else np.nan
+        row["nonwinner_mean_net"] = float(net[~is_winner].mean()) if n_nw else np.nan
+        row["nonwinner_se_net"] = float(net[~is_winner].std() / np.sqrt(n_nw)) if n_nw > 1 else np.nan
         return row
 
     def _baseline_mean(self, values, slippage):
@@ -202,20 +233,27 @@ def main():
     assert max(lasts) < FINAL_START
 
     searcher = Searcher(universe)
+    print(f"승자 종목({WINNER_MULTIPLE:.0f}배 이상, 확인 구간 끝까지만 봄. 확인 구간 결과의 '오늘 기준' 12종목과는 배율만 같고 기준 시점이 다름) "
+          f"{len(searcher.winners)}개: {sorted(searcher.winners)}")
     primary_values, rounds_run = searcher.descend()
     primary = searcher.cache[searcher.key(primary_values)]
     backup = pick_backup(searcher, primary_values)
     n_eval = len(searcher.cache)
-    # 첫 탐색(v1, 시장 필터 없음)에서 이미 평가한 조합까지 합친 누적 시도 수
+    # 이전 탐색(v1: 4개 좌표, v2: +mkt_drop)에서 이미 평가한 조합까지 좌표를 맞춰 합친 누적 시도 수
     v1 = pd.read_csv(RESULTS_DIR / "search_attempts.csv").drop_duplicates("attempt_no")
-    v1_keys = set(zip(v1["drop"], v1["vmult"], [0.0] * len(v1), v1["tp"], v1["stop_atr"]))
-    cumulative = len(v1_keys | set(searcher.cache))
+    v1_keys = set(zip(v1["drop"], v1["vmult"], [0.0] * len(v1), [0] * len(v1), v1["tp"], v1["stop_atr"]))
+    v2 = pd.read_csv(RESULTS_DIR / "search_attempts_v2.csv").drop_duplicates("attempt_no")
+    v2_keys = set(zip(v2["drop"], v2["vmult"], v2["mkt_drop"], [0] * len(v2), v2["tp"], v2["stop_atr"]))
+    cumulative = len(v1_keys | v2_keys | set(searcher.cache))
 
-    print(f"\n이번 탐색에서 평가한 조합 {n_eval}개, 첫 탐색과 합친 누적 {cumulative}개 (상한 {ATTEMPT_LIMIT}), "
+    print(f"\n이번 탐색에서 평가한 조합 {n_eval}개, 이전 탐색과 합친 누적 {cumulative}개 (상한 {ATTEMPT_LIMIT}), "
           f"좌표 하강 {rounds_run}바퀴, 스윕 행 {len(searcher.log)}개")
     print("주 후보:", {k: primary[k] for k in ORDER}, f"n={primary['n']} mean={primary['mean_net']:+.3%} se={primary['se_net']:.3%}")
     print(f"  대조군(전 종목 모든 날)={primary['control_all_days']:+.3%} 대조군(같은 날)={primary['control_same_day']:+.3%}")
     print(f"  2020-02-20~04-30 제외 평균={primary['mean_net_outside_window']:+.3%} (n={primary['n_outside_window']})")
+    print(f"  승자 종목 비중(건수)={primary['winner_share_n']:.1%} 승자 평균={primary['winner_mean_net']:+.3%}"
+          f"(se={primary['winner_se_net']:.3%}, n={primary['winner_n']}) 비승자 평균={primary['nonwinner_mean_net']:+.3%}"
+          f"(se={primary['nonwinner_se_net']:.3%})")
     if backup is not None:
         print("차선책:", {k: backup[k] for k in ORDER}, f"n={backup['n']} mean={backup['mean_net']:+.3%}")
     else:
@@ -231,11 +269,14 @@ def main():
         "tie_tol": TIE_TOL, "max_positions": MAX_POSITIONS, "confirm_start": CONFIRM_START,
         "final_start": FINAL_START, "sell_tax_schedule": engine.SELL_TAX_SCHEDULE, "commission": engine.COMMISSION,
         "exclude_window": EXCLUDE_WINDOW, "new_evaluations": n_eval, "cumulative_evaluations": cumulative,
-        "attempt_limit": ATTEMPT_LIMIT,
+        "attempt_limit": ATTEMPT_LIMIT, "trend_windows": list(engine.TREND_WINDOWS),
+        "winner_multiple": WINNER_MULTIPLE, "winners": sorted(searcher.winners),
     }
     (RESULTS_DIR / f"search_meta{VERSION}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     candidates = {
-        "primary": {**{k: primary[k] for k in ORDER}, "n_tune": int(primary["n"]), "mean_net_tune": primary["mean_net"]},
+        "primary": {**{k: primary[k] for k in ORDER}, "n_tune": int(primary["n"]), "mean_net_tune": primary["mean_net"],
+                    "winner_share_n": primary["winner_share_n"], "winner_mean_net": primary["winner_mean_net"],
+                    "nonwinner_mean_net": primary["nonwinner_mean_net"]},
         "backup": None if backup is None else {**{k: backup[k] for k in ORDER}, "n_tune": int(backup["n"]),
                                                 "mean_net_tune": backup["mean_net"]},
         "new_evaluations": n_eval, "rounds_run": rounds_run,
