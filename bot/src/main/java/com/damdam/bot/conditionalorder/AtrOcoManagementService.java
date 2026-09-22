@@ -73,6 +73,9 @@ public class AtrOcoManagementService {
 			if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
 				return false;
 			}
+			if (!"KRW".equals(holding.get().currency())) {
+				return false; // 해외는 관리 대상이 아니다. 알림은 매수/매도 체결 시점(doSync)에서만 한다
+			}
 			Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
 			if (existing.isPresent()
 					&& new BigDecimal(existing.get().quantity()).compareTo(new BigDecimal(holding.get().quantity())) == 0) {
@@ -87,10 +90,17 @@ public class AtrOcoManagementService {
 		}
 	}
 
-	// 포지션이 0이 되면 남은 OCO를 정리한다
+	// 포지션이 0이 되면 남은 OCO를 정리한다. 해외 종목의 OCO는 관리 대상이 아니라서 건드리지 않는다 (그대로 둔다)
 	public void cancelIfOpen(long accountSeq, String symbol) {
 		try {
 			conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).ifPresent(detail -> {
+				if (!"KR".equals(detail.market())) {
+					// 포지션은 0이 됐지만 워칭 중인 매도 조건주문이 남아 있어서, 나중에 재매수하면 새 수량/평단가와 안 맞을 수 있다
+					log.warn("[OCO 정리] {} 해외 종목이라 남은 OCO를 그대로 둡니다.", symbol);
+					notifier.send("oco-overseas-leftover-" + symbol, "[담담] " + symbol
+						+ " 포지션은 청산됐지만 해외 종목이라 남은 OCO를 정리하지 않았습니다. 필요하면 앱에서 직접 취소하세요.");
+					return;
+				}
 				if (!conditionalOrderService.cancelConditionalOrder(accountSeq, detail.conditionalOrderId())) {
 					alertOcoProblem(symbol, "남은 OCO를 취소하지 못했습니다");
 				}
@@ -113,9 +123,15 @@ public class AtrOcoManagementService {
 			return;
 		}
 		HoldingItem item = holding.get();
+		boolean isKrw = "KRW".equals(item.currency());
+		if (!isKrw) {
+			// 해외는 시간 청산처럼 OCO도 알림만 한다 (docs/strategy.md, 첫 실전은 국내 종목만). 기존에 걸려 있던 OCO는 건드리지 않는다
+			log.warn("[OCO 갱신] {} 해외 종목이라 OCO 자동 등록/수정 대상에서 제외합니다.", symbol);
+			notifier.send("oco-overseas-" + symbol, "[담담] " + symbol + " 해외 종목은 OCO 자동 등록/수정 대상이 아닙니다. 필요하면 직접 확인하세요.");
+			return;
+		}
 
 		BigDecimal atr14 = atrService.getAtr14(symbol);
-		boolean isKrw = "KRW".equals(item.currency());
 		AtrOcoPricing.Prices prices = AtrOcoPricing.calculate(new BigDecimal(item.averagePurchasePrice()), atr14, isKrw);
 		String expireDate = LocalDate.now().plusDays(EXPIRE_DAYS).toString();
 

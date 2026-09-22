@@ -160,8 +160,12 @@ class ConditionalOrderServiceLiveTest {
 	}
 
 	private static String orderJson(String id, String type, String quantity) {
+		return orderJson(id, type, quantity, "KR");
+	}
+
+	private static String orderJson(String id, String type, String quantity, String market) {
 		return "{\"conditionalOrderId\":\"" + id + "\",\"type\":\"" + type + "\",\"status\":\"WATCHING\",\"symbol\":\"005930\","
-			+ "\"quantity\":\"" + quantity + "\"}";
+			+ "\"market\":\"" + market + "\",\"quantity\":\"" + quantity + "\"}";
 	}
 
 	// 토스 앱에서 직접 만든 단일 조건주문을 봇이 OCO로 착각해 수정(덮어쓰기)하면 안 된다
@@ -174,6 +178,20 @@ class ConditionalOrderServiceLiveTest {
 		var found = service.findOpenConditionalOrder(3L, "005930");
 
 		assertEquals("oco-1", found.orElseThrow().conditionalOrderId());
+		server.verify();
+	}
+
+	// market 필드가 실제 JSON 응답에서 Jackson으로 정확히 역직렬화되는지 확인한다. AtrOcoManagementService.cancelIfOpen이
+	// 이 필드로 국내/해외를 가르므로(공식 명세 ConditionalOrderDetailResponse.market, enum KR/US), 필드명이 틀리면
+	// 조용히 null이 되어 국내 종목의 OCO 정리까지 막힐 수 있다 (damdam-reviewer 지적, 2026-09-23)
+	@Test
+	void deserializesTheMarketFieldFromTheRealResponseShape() {
+		server.expect(requestTo(org.hamcrest.Matchers.startsWith(BASE + "/api/v1/conditional-orders?status=OPEN&symbol=005930")))
+			.andRespond(withSuccess(listBody(orderJson("oco-1", "OCO", "2", "US")), MediaType.APPLICATION_JSON));
+
+		var found = service.findOpenConditionalOrder(3L, "005930");
+
+		assertEquals("US", found.orElseThrow().market());
 		server.verify();
 	}
 
