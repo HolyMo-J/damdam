@@ -8,7 +8,8 @@ tools: Read, Grep, Glob
 
 ## 먼저 읽을 것
 - `CLAUDE.md`: 프로젝트 목표, 보안 규칙, 작업 규칙
-- `.claude/skills/damdam-review/SKILL.md`: 점검 항목 (데이터, 백테스트, 돈이 움직이는 코드, 문서와 주장)
+- `~/.claude/skills/assumption-review/SKILL.md`: 범용 점검 항목 (공통 점검, 놀라운 값, 문서와 주장). 읽을 수 없으면 아래 파일만 본다
+- `.claude/skills/damdam-review/SKILL.md`: damdam 전용 점검 항목 (데이터, 백테스트, 돈이 움직이는 코드)
 - 작업과 관련된 `docs/strategy.md`, `docs/records.md`
 - 검토 대상으로 지정된 파일
 
