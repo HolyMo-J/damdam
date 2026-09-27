@@ -51,6 +51,7 @@
 damdam/
 ├── bot/
 │   ├── scripts/             # 백그라운드 실행/종료 스크립트 (PowerShell)
+│   │   └── linux/           # 서버(오라클 클라우드) 배포용 systemd 서비스 파일
 │   └── src/main/java/com/damdam/bot/
 │       ├── config/          # 설정값 바인딩, 공용 RestClient 빈
 │       ├── token/           # 토큰 발급, 저장, 재사용
@@ -75,6 +76,7 @@ damdam/
 │   ├── done.md              # 완료한 작업 이력
 │   ├── strategy.md          # 청산 규칙, 매매 전략
 │   ├── records.md           # 매매 기록 설계
+│   ├── deploy.md            # 서버(오라클 클라우드) 배포 절차
 │   └── troubleshooting.md   # 겪은 문제와 해결 과정, 설계 하이라이트
 ├── .env.example             # 환경변수 이름만 정의 (실제 값은 .env에만 작성)
 └── CLAUDE.md                # 프로젝트 규칙과 현재 상태
@@ -117,6 +119,8 @@ cd bot
 ```
 
 웹소켓 연결을 유지하면서 체결을 실시간으로 감지하고, 평일 장 시작 직후 시간 청산 기준을 확인합니다. `query`, `listen` 프로필이 아닌 기본 실행이나 테스트에서는 실제 API를 호출하지 않습니다.
+
+장중에 계속 켜져 있어야 해서, 집 PC 대신 상시 실행 서버(오라클 클라우드)에서 systemd로 등록해 돌리는 것을 권장합니다. 배포 절차는 [docs/deploy.md](docs/deploy.md) 참고.
 
 ## 운영: 봇을 멈추는 방법
 

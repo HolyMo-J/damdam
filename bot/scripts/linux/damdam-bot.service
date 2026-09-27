@@ -1,0 +1,32 @@
+# systemd 서비스 파일 템플릿. 오라클 클라우드 인스턴스(Linux)에서 체결 감지 봇을 상시 실행하는 용도.
+# 사용법은 docs/deploy.md 참고. 아래 <..> 표시된 값은 실제 서버 환경에 맞게 바꿔야 한다.
+#
+# 설치: sudo cp damdam-bot.service /etc/systemd/system/damdam-bot.service
+#       sudo systemctl daemon-reload
+#       sudo systemctl enable --now damdam-bot
+
+[Unit]
+Description=damdam bot (order-event listener)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# root로 돌리지 않는다. 배포 전 전용 사용자를 만들어 이름을 채운다 (docs/deploy.md 참고)
+User=<damdam-linux-user>
+WorkingDirectory=<install-path>/bot
+# `which java`로 확인한 실제 경로를 쓴다. systemd는 로그인 셸의 PATH를 상속하지 않는다
+ExecStart=<java-path> -jar build/libs/bot-0.0.1-SNAPSHOT.jar --spring.profiles.active=listen
+
+# 비정상 종료 시에만 재시작한다. 정상 종료(systemctl stop)는 재시작하지 않는다
+Restart=on-failure
+# 짧은 간격으로 반복 재시작하면 토스 API 호출 제한에 걸릴 수 있어 여유를 둔다
+RestartSec=15
+
+# JVM 종료 훅(봇 종료 알림, 정상 정리)이 끝날 시간을 준다. Windows의 stop-listen.ps1과 달리
+# systemd는 기본적으로 SIGTERM을 보내므로 별도의 종료 요청 파일 트릭이 필요 없다
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
