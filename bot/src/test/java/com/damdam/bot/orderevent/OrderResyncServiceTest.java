@@ -8,6 +8,7 @@ import com.damdam.bot.liquidation.ManagedPositions;
 import com.damdam.bot.orders.Order;
 import com.damdam.bot.orders.OrderExecution;
 import com.damdam.bot.orders.OrderService;
+import com.damdam.bot.records.ExitReasonClassifier;
 import com.damdam.bot.records.TradeRecordWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ class OrderResyncServiceTest {
 	private HoldingsService holdingsService;
 	private AtrOcoManagementService atrOcoManagementService;
 	private ManagedPositions managedPositions;
+	private ExitReasonClassifier exitReasonClassifier;
 	private final List<String> alerts = new ArrayList<>();
 	private Path csv;
 	private OrderResyncService service;
@@ -50,9 +52,10 @@ class OrderResyncServiceTest {
 		holdingsService = mock(HoldingsService.class);
 		atrOcoManagementService = mock(AtrOcoManagementService.class);
 		managedPositions = mock(ManagedPositions.class);
+		exitReasonClassifier = mock(ExitReasonClassifier.class);
 		csv = tempDir.resolve("trades.csv");
 		service = new OrderResyncService(orderService, holdingsService, new TradeRecordWriter(csv.toString()),
-			atrOcoManagementService, managedPositions, (key, message) -> alerts.add(key));
+			atrOcoManagementService, managedPositions, exitReasonClassifier, (key, message) -> alerts.add(key));
 
 		when(orderService.getOpenOrders(ACCOUNT)).thenReturn(List.of());
 		when(orderService.getRecentClosedOrders(anyLong(), anyInt())).thenReturn(List.of());
@@ -88,19 +91,30 @@ class OrderResyncServiceTest {
 		assertEquals(1, csvRows());
 		String row = Files.readAllLines(csv).get(1);
 		assertTrue(row.contains(",o-1,AAA,BUY,FILL,10,"));
-		// 재동기화 행은 실제 체결 시각과 출처를 남긴다
-		assertTrue(row.endsWith(",2026-09-21T10:01:00+09:00,resync"));
+		// 재동기화 행은 실제 체결 시각과 출처를 남긴다. 매수라 청산 사유 칸은 비운다
+		assertTrue(row.endsWith(",2026-09-21T10:01:00+09:00,resync,manual,"));
 		assertTrue(alerts.contains("resync-found"));
+	}
+
+	// 매도 체결은 ExitReasonClassifier가 추정한 사유를 그대로 CSV에 남긴다
+	@Test
+	void recordsTheClassifiedExitReasonForSellFills() throws IOException {
+		when(orderService.getRecentClosedOrders(ACCOUNT, 7)).thenReturn(List.of(order("o-5", "AAA", "SELL", "FILLED", "5")));
+		when(exitReasonClassifier.classifySell("o-5", "AAA", "100")).thenReturn("take_profit");
+
+		service.resync(ACCOUNT);
+
+		assertTrue(Files.readAllLines(csv).get(1).endsWith(",resync,manual,take_profit"));
 	}
 
 	// 웹소켓으로 이미 기록한 체결은 재동기화가 다시 기록하지 않는다
 	@Test
 	void doesNotDuplicateFillsAlreadyRecordedByTheStream() throws IOException {
 		new TradeRecordWriter(csv.toString()).record("o-1", "AAA", "BUY", "FILL", "10", "100", "1000", "1", "0",
-			"USD", "LIMIT", "FILLED");
+			"USD", "LIMIT", "FILLED", TradeRecordWriter.STRATEGY_MANUAL, "");
 		when(orderService.getRecentClosedOrders(ACCOUNT, 7)).thenReturn(List.of(order("o-1", "AAA", "BUY", "FILLED", "10.000")));
 		service = new OrderResyncService(orderService, holdingsService, new TradeRecordWriter(csv.toString()),
-			atrOcoManagementService, managedPositions, (key, message) -> alerts.add(key));
+			atrOcoManagementService, managedPositions, exitReasonClassifier, (key, message) -> alerts.add(key));
 
 		service.resync(ACCOUNT);
 		service.resync(ACCOUNT);

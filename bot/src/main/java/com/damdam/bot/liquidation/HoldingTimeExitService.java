@@ -168,6 +168,11 @@ public class HoldingTimeExitService {
 		// 매도 체결(FILL) 이벤트를 받은 뒤 AtrOcoManagementService.syncAfterSellFill이 정리한다
 	}
 
+	// 청산 사유 판정(ExitReasonClassifier)에서 쓴다. onAutoSellFilled처럼 값을 소비하지 않고 시간 청산이 낸 매도인지만 확인한다
+	public boolean isPendingAutoSell(String orderId) {
+		return pendingAutoSellAvgPrice.containsKey(orderId);
+	}
+
 	// SELL FILL 이벤트가 올 때마다 호출된다. orderId가 시간 청산이 낸 매도가 아니면(OCO 트리거, 사용자 수동 매도 등)
 	// 아무 것도 하지 않는다. 매도 실현 손익(체결금액 - 수수료 - 세금)이 매수 원가(평단가 x 체결수량)보다 작으면 손실로 판정한다.
 	// 매수측 수수료가 평단가에 이미 포함돼 있는지는 공식 문서에 없어 확인할 수 없었다. 매도측 수수료/세금만 정확히 반영하고

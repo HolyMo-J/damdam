@@ -240,4 +240,27 @@ class HoldingTimeExitServiceTest {
 
 		assertTrue(autoSellGuard.canPlaceAutoSell(SYMBOL));
 	}
+
+	// ExitReasonClassifier가 청산 사유를 판정할 때 쓴다. onAutoSellFilled와 달리 값을 소비하지 않는다
+	@Test
+	void isPendingAutoSellReflectsAnAcceptedTimeExitOrderUntilItsFillIsProcessed(@TempDir Path tempDir) {
+		autoSellGuard = new AutoSellGuard(10, 1, tempDir.resolve("guard.json").toString(),
+			java.time.Clock.systemDefaultZone(), fakeNotifier);
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.PLACED, "order-1", null, null));
+		HoldingTimeExitService service = newService();
+
+		assertFalse(service.isPendingAutoSell("order-1"));
+		service.checkAndAlert();
+		assertTrue(service.isPendingAutoSell("order-1"));
+		assertTrue(service.isPendingAutoSell("order-1"));
+		assertFalse(service.isPendingAutoSell("unrelated-order"));
+
+		service.onAutoSellFilled("order-1", new BigDecimal("10"), new BigDecimal("1000"), new BigDecimal("0"), new BigDecimal("0"));
+
+		assertFalse(service.isPendingAutoSell("order-1"));
+	}
 }

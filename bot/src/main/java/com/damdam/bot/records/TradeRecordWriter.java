@@ -24,12 +24,18 @@ public class TradeRecordWriter {
 
 	public static final String SOURCE_STREAM = "stream";
 	public static final String SOURCE_RESYNC = "resync";
+	// 전략 이름의 기본값. 지금은 자동매매 전략이 없어 이 파일(실전 매매 기록)의 매수는 전부 수동이다.
+	// 가상매매(review-tasks.md 9번)는 별도 기록 파일을 쓰므로, 여기 값은 4단계에서 전략이 실제 주문을 내기 전까지 계속 이 값 하나다
+	public static final String STRATEGY_MANUAL = "manual";
 
 	private static final Logger log = LoggerFactory.getLogger(TradeRecordWriter.class);
 	private static final String LEGACY_HEADER = "timestamp,order_id,symbol,side,event,filled_quantity,"
 		+ "average_filled_price,filled_amount,commission,tax,currency,order_type,status";
 	// filled_at: 실제 체결 시각(재동기화 행에서 채움. timestamp는 기록한 시각이라 늦게 기록되면 체결 시각과 다르다), source: stream 또는 resync
-	private static final String HEADER = LEGACY_HEADER + ",filled_at,source\n";
+	private static final String LEGACY_HEADER_V2 = LEGACY_HEADER + ",filled_at,source";
+	// strategy_name: 이 거래를 낸 전략 이름(지금은 항상 manual). exit_reason: 매도 체결의 추정 청산 사유
+	// (take_profit/stop_loss/time_exit/manual, 매수 행은 비움). 서버가 알려주는 값이 아니라 ExitReasonClassifier의 추정이다
+	private static final String HEADER = LEGACY_HEADER_V2 + ",strategy_name,exit_reason\n";
 	private static final int ORDER_ID_COLUMN = 1;
 	private static final int FILLED_QUANTITY_COLUMN = 5;
 
@@ -43,16 +49,17 @@ public class TradeRecordWriter {
 	// 웹소켓 체결 이벤트용 (체결 시각 정보가 이벤트에 없다)
 	public boolean record(String orderId, String symbol, String side, String event,
 			String filledQuantity, String averageFilledPrice, String filledAmount,
-			String commission, String tax, String currency, String orderType, String status) {
+			String commission, String tax, String currency, String orderType, String status,
+			String strategyName, String exitReason) {
 		return record(orderId, symbol, side, event, filledQuantity, averageFilledPrice, filledAmount,
-			commission, tax, currency, orderType, status, null, SOURCE_STREAM);
+			commission, tax, currency, orderType, status, null, SOURCE_STREAM, strategyName, exitReason);
 	}
 
 	// 새로 기록했으면 true, 이미 기록돼 있거나 저장에 실패했으면 false
 	public synchronized boolean record(String orderId, String symbol, String side, String event,
 			String filledQuantity, String averageFilledPrice, String filledAmount,
 			String commission, String tax, String currency, String orderType, String status,
-			String filledAt, String source) {
+			String filledAt, String source, String strategyName, String exitReason) {
 		try {
 			prepareFile();
 			String key = key(orderId, filledQuantity);
@@ -63,7 +70,7 @@ public class TradeRecordWriter {
 				Instant.now().toString(), csv(orderId), csv(symbol), csv(side), csv(event),
 				csv(filledQuantity), csv(averageFilledPrice), csv(filledAmount),
 				csv(commission), csv(tax), csv(currency), csv(orderType), csv(status),
-				csv(filledAt), csv(source)) + "\n";
+				csv(filledAt), csv(source), csv(strategyName), csv(exitReason)) + "\n";
 			Files.writeString(filePath, row, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
 			recordedKeys.add(key);
 			return true;
@@ -73,7 +80,7 @@ public class TradeRecordWriter {
 		}
 	}
 
-	// 처음 한 번: 파일이 없으면 만들고, 옛 형식(컬럼 13개)이면 새 컬럼을 붙여 옮기고, 이미 기록된 체결 키를 읽어 둔다
+	// 처음 한 번: 파일이 없으면 만들고, 옛 형식(컬럼 13개 또는 15개)이면 새 컬럼을 붙여 옮기고, 이미 기록된 체결 키를 읽어 둔다
 	private void prepareFile() throws IOException {
 		if (recordedKeys != null) {
 			return;
@@ -88,7 +95,9 @@ public class TradeRecordWriter {
 		} else {
 			List<String> lines = Files.readAllLines(filePath, StandardCharsets.UTF_8);
 			if (!lines.isEmpty() && lines.get(0).equals(LEGACY_HEADER)) {
-				migrateLegacyFile(lines);
+				migrateLegacyFile(lines, ",,,,");
+			} else if (!lines.isEmpty() && lines.get(0).equals(LEGACY_HEADER_V2)) {
+				migrateLegacyFile(lines, ",,");
 			}
 			for (int i = 1; i < lines.size(); i++) {
 				String[] columns = lines.get(i).split(",", -1);
@@ -100,19 +109,19 @@ public class TradeRecordWriter {
 		recordedKeys = keys;
 	}
 
-	// 컬럼이 다른 행이 섞이면 pandas가 읽지 못하므로, 기존 행 끝에 빈 컬럼 두 개를 붙여 통째로 새 형식으로 바꾼다.
-	// 임시 파일에 쓴 뒤 교체해서 중간에 종료돼도 원본이 남는다
-	private void migrateLegacyFile(List<String> lines) throws IOException {
+	// 컬럼이 다른 행이 섞이면 pandas가 읽지 못하므로, 기존 행 끝에 빈 컬럼을 붙여 통째로 새 형식으로 바꾼다.
+	// missingColumnsSuffix는 옛 형식과 새 형식의 컬럼 수 차이만큼의 빈 컬럼(콤마)이다. 임시 파일에 쓴 뒤 교체해서 중간에 종료돼도 원본이 남는다
+	private void migrateLegacyFile(List<String> lines, String missingColumnsSuffix) throws IOException {
 		StringBuilder migrated = new StringBuilder(HEADER);
 		for (int i = 1; i < lines.size(); i++) {
 			if (!lines.get(i).isBlank()) {
-				migrated.append(lines.get(i)).append(",,\n");
+				migrated.append(lines.get(i)).append(missingColumnsSuffix).append("\n");
 			}
 		}
 		Path temp = filePath.toAbsolutePath().resolveSibling(filePath.getFileName() + ".tmp");
 		Files.writeString(temp, migrated.toString(), StandardCharsets.UTF_8);
 		Files.move(temp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		log.info("매매 기록 파일에 filled_at, source 컬럼을 추가했습니다 (기존 {}건 유지).", lines.size() - 1);
+		log.info("매매 기록 파일 형식을 최신으로 옮겼습니다 (기존 {}건 유지).", lines.size() - 1);
 	}
 
 	// 웹소켓과 REST의 수량 표기가 다를 수 있어("10"과 "10.000") 숫자로 정규화해서 비교한다

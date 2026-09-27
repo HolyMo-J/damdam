@@ -16,7 +16,8 @@ class TradeRecordWriterTest {
 
 	private static boolean record(TradeRecordWriter writer, String orderId, String filledQuantity, String source) {
 		return writer.record(orderId, "AAA", "BUY", "FILL", filledQuantity, "100", "1000", "1", "0", "USD", "LIMIT",
-			"FILLED", "resync".equals(source) ? "2026-09-21T10:00:00+09:00" : null, source);
+			"FILLED", "resync".equals(source) ? "2026-09-21T10:00:00+09:00" : null, source,
+			TradeRecordWriter.STRATEGY_MANUAL, "");
 	}
 
 	@Test
@@ -26,9 +27,21 @@ class TradeRecordWriterTest {
 		assertTrue(record(new TradeRecordWriter(file.toString()), "o-1", "10", TradeRecordWriter.SOURCE_STREAM));
 
 		List<String> lines = Files.readAllLines(file);
-		assertTrue(lines.get(0).endsWith(",status,filled_at,source"));
+		assertTrue(lines.get(0).endsWith(",status,filled_at,source,strategy_name,exit_reason"));
 		assertEquals(2, lines.size());
-		assertTrue(lines.get(1).endsWith(",FILLED,,stream"));
+		assertTrue(lines.get(1).endsWith(",FILLED,,stream,manual,"));
+	}
+
+	// 매도 체결의 청산 사유는 그대로 마지막 칸에 남는다
+	@Test
+	void writesTheExitReasonForSellRows(@TempDir Path tempDir) throws IOException {
+		Path file = tempDir.resolve("trades.csv");
+		TradeRecordWriter writer = new TradeRecordWriter(file.toString());
+
+		assertTrue(writer.record("o-1", "AAA", "SELL", "FILL", "10", "100", "1000", "1", "0", "USD", "LIMIT",
+			"FILLED", TradeRecordWriter.STRATEGY_MANUAL, "take_profit"));
+
+		assertTrue(Files.readAllLines(file).get(1).endsWith(",stream,manual,take_profit"));
 	}
 
 	// 같은 체결이 웹소켓과 재동기화 양쪽에서 들어와도 한 번만 기록된다
@@ -74,9 +87,9 @@ class TradeRecordWriterTest {
 		assertEquals(3, Files.readAllLines(file).size());
 	}
 
-	// 옛 형식(컬럼 13개) 파일은 기존 행을 유지한 채 새 컬럼이 붙고, 옛 행도 중복 검사에 쓰인다
+	// 아주 옛 형식(컬럼 13개) 파일은 기존 행을 유지한 채 새 컬럼 4개가 붙고, 옛 행도 중복 검사에 쓰인다
 	@Test
-	void migratesTheLegacyFileKeepingOldRows(@TempDir Path tempDir) throws IOException {
+	void migratesTheVeryOldLegacyFileKeepingOldRows(@TempDir Path tempDir) throws IOException {
 		Path file = tempDir.resolve("trades.csv");
 		Files.writeString(file, "timestamp,order_id,symbol,side,event,filled_quantity,average_filled_price,filled_amount,"
 			+ "commission,tax,currency,order_type,status\n"
@@ -88,8 +101,27 @@ class TradeRecordWriterTest {
 
 		List<String> lines = Files.readAllLines(file);
 		assertEquals(3, lines.size());
-		assertTrue(lines.get(0).endsWith(",status,filled_at,source"));
-		assertEquals("2026-09-18T07:00:00Z,old-1,AAA,BUY,FILL,10,100,1000,1,0,USD,LIMIT,FILLED,,", lines.get(1));
-		lines.forEach(line -> assertEquals(15, line.split(",", -1).length, line));
+		assertTrue(lines.get(0).endsWith(",status,filled_at,source,strategy_name,exit_reason"));
+		assertEquals("2026-09-18T07:00:00Z,old-1,AAA,BUY,FILL,10,100,1000,1,0,USD,LIMIT,FILLED,,,,", lines.get(1));
+		lines.forEach(line -> assertEquals(17, line.split(",", -1).length, line));
+	}
+
+	// 중간 형식(컬럼 15개, filled_at/source까지만 있던 시절) 파일은 새 컬럼 2개만 붙는다
+	@Test
+	void migratesThePreviousFormatFileKeepingOldRows(@TempDir Path tempDir) throws IOException {
+		Path file = tempDir.resolve("trades.csv");
+		Files.writeString(file, "timestamp,order_id,symbol,side,event,filled_quantity,average_filled_price,filled_amount,"
+			+ "commission,tax,currency,order_type,status,filled_at,source\n"
+			+ "2026-09-18T07:00:00Z,old-1,AAA,BUY,FILL,10,100,1000,1,0,USD,LIMIT,FILLED,,stream\n");
+		TradeRecordWriter writer = new TradeRecordWriter(file.toString());
+
+		assertFalse(record(writer, "old-1", "10", TradeRecordWriter.SOURCE_RESYNC));
+		assertTrue(record(writer, "new-1", "5", TradeRecordWriter.SOURCE_STREAM));
+
+		List<String> lines = Files.readAllLines(file);
+		assertEquals(3, lines.size());
+		assertTrue(lines.get(0).endsWith(",status,filled_at,source,strategy_name,exit_reason"));
+		assertEquals("2026-09-18T07:00:00Z,old-1,AAA,BUY,FILL,10,100,1000,1,0,USD,LIMIT,FILLED,,stream,,", lines.get(1));
+		lines.forEach(line -> assertEquals(17, line.split(",", -1).length, line));
 	}
 }

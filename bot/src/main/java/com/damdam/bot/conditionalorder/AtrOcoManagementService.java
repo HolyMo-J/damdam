@@ -12,7 +12,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 // 매수 체결마다 평단가 기준으로 ATR 익절/손절 OCO를 등록하거나 기존 걸 수정한다 (docs/strategy.md v0)
 @Service
@@ -27,6 +29,9 @@ public class AtrOcoManagementService {
 	private final ConditionalOrderService conditionalOrderService;
 	private final Notifier notifier;
 	private final TradingHaltSwitch haltSwitch;
+	// 마지막으로 등록/수정에 성공한 OCO의 익절/손절 가격을 심볼별로 기억해둔다 (청산 사유 판정용, ExitReasonClassifier가 읽는다).
+	// OCO가 트리거되면 조건주문 조회로는 더 이상 이 가격을 못 얻으므로 등록/수정 시점에 미리 남겨둔다. 실제 서버 값이 아니라 이 값 기준의 추정이다
+	private final Map<String, AtrOcoPricing.Prices> lastKnownPrices = new ConcurrentHashMap<>();
 
 	public AtrOcoManagementService(HoldingsService holdingsService, AtrService atrService,
 			ConditionalOrderService conditionalOrderService, Notifier notifier, TradingHaltSwitch haltSwitch) {
@@ -152,7 +157,14 @@ public class AtrOcoManagementService {
 				? "OCO 수정에 실패했습니다 (기존 OCO가 그대로 남아 수량과 가격이 실제 보유와 다를 수 있음)"
 				: "OCO 등록에 실패했습니다 (손절 보호가 없는 상태)";
 			alertOcoProblem(symbol, consequence + ". 사유: " + result.errorMessage());
+		} else {
+			lastKnownPrices.put(symbol, prices);
 		}
+	}
+
+	// 청산 사유 판정(ExitReasonClassifier)에서 쓴다. 등록/수정된 적이 없는 심볼은 비어 있다
+	public Optional<AtrOcoPricing.Prices> lastKnownPrices(String symbol) {
+		return Optional.ofNullable(lastKnownPrices.get(symbol));
 	}
 
 	private void alertOcoProblem(String symbol, String detail) {

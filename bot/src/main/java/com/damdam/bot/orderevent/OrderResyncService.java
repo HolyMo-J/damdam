@@ -7,6 +7,7 @@ import com.damdam.bot.liquidation.ManagedPositions;
 import com.damdam.bot.notification.Notifier;
 import com.damdam.bot.orders.Order;
 import com.damdam.bot.orders.OrderService;
+import com.damdam.bot.records.ExitReasonClassifier;
 import com.damdam.bot.records.TradeRecordWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,15 +34,18 @@ public class OrderResyncService {
 	private final TradeRecordWriter tradeRecordWriter;
 	private final AtrOcoManagementService atrOcoManagementService;
 	private final ManagedPositions managedPositions;
+	private final ExitReasonClassifier exitReasonClassifier;
 	private final Notifier notifier;
 
 	public OrderResyncService(OrderService orderService, HoldingsService holdingsService, TradeRecordWriter tradeRecordWriter,
-			AtrOcoManagementService atrOcoManagementService, ManagedPositions managedPositions, Notifier notifier) {
+			AtrOcoManagementService atrOcoManagementService, ManagedPositions managedPositions,
+			ExitReasonClassifier exitReasonClassifier, Notifier notifier) {
 		this.orderService = orderService;
 		this.holdingsService = holdingsService;
 		this.tradeRecordWriter = tradeRecordWriter;
 		this.atrOcoManagementService = atrOcoManagementService;
 		this.managedPositions = managedPositions;
+		this.exitReasonClassifier = exitReasonClassifier;
 		this.notifier = notifier;
 	}
 
@@ -111,9 +115,14 @@ public class OrderResyncService {
 	private boolean recordFill(Order order) {
 		var execution = order.execution();
 		String event = "FILLED".equals(order.status()) ? "FILL" : "PARTIAL_FILL";
+		// 봇이 시간 청산 매도 접수와 체결 사이에 재시작되면 HoldingTimeExitService의 기억이 비어서, 재동기화로 뒤늦게 찾은
+		// 그 시간 청산 매도는 time_exit이 아니라 manual/OCO 가격 비교로 판정될 수 있다 (드문 경우라 감수, docs/todo.md 참고)
+		String exitReason = "SELL".equals(order.side())
+			? exitReasonClassifier.classifySell(order.orderId(), order.symbol(), execution.averageFilledPrice())
+			: "";
 		return tradeRecordWriter.record(order.orderId(), order.symbol(), order.side(), event,
 			execution.filledQuantity(), execution.averageFilledPrice(), execution.filledAmount(),
 			execution.commission(), execution.tax(), order.currency(), order.orderType(), order.status(),
-			execution.filledAt(), TradeRecordWriter.SOURCE_RESYNC);
+			execution.filledAt(), TradeRecordWriter.SOURCE_RESYNC, TradeRecordWriter.STRATEGY_MANUAL, exitReason);
 	}
 }

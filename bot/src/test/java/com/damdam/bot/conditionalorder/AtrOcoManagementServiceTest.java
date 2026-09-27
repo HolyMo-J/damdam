@@ -213,6 +213,39 @@ class AtrOcoManagementServiceTest {
 		assertEquals(List.of("oco-overseas-leftover-" + SYMBOL), alerts);
 	}
 
+	// 청산 사유 판정(ExitReasonClassifier)이 매도 체결 전에 조회할 수 있도록, 등록 성공 시 익절/손절 가격을 기억해둔다
+	@Test
+	void remembersTheRegisteredOcoPricesAfterASuccessfulCreate() {
+		givenHoldings(holding("5"));
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
+		when(atrService.getAtr14(SYMBOL)).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.PLACED, "oco-1", null));
+
+		service.syncAfterBuyFill(ACCOUNT, SYMBOL);
+
+		Optional<AtrOcoPricing.Prices> prices = service.lastKnownPrices(SYMBOL);
+		assertTrue(prices.isPresent());
+		assertEquals("102", prices.get().takeProfitTrigger());
+		assertEquals("98", prices.get().stopLossTrigger());
+	}
+
+	// 등록이 실패하면 실제로 걸린 적 없는 가격을 기억해두면 안 된다
+	@Test
+	void doesNotRememberPricesWhenRegistrationFails() {
+		givenHoldings(holding("5"));
+		when(conditionalOrderService.findOpenConditionalOrder(ACCOUNT, SYMBOL)).thenReturn(Optional.empty());
+		when(atrService.getAtr14(SYMBOL)).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.FAILED, null, "400 호가 단위 불일치"));
+
+		service.syncAfterBuyFill(ACCOUNT, SYMBOL);
+
+		assertTrue(service.lastKnownPrices(SYMBOL).isEmpty());
+	}
+
 	@Test
 	void ensureOcoDoesNothingForOverseasHoldings() {
 		givenHoldings(overseasHolding("5"));

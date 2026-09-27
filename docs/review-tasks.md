@@ -63,10 +63,13 @@ D묶음 지금 진행
 
 7. [완료 2026-09-28] CLAUDE.md를 갱신한다. "알림: 방식 미정" 문구는 디스코드 웹훅으로 이미 구현됐으니 고친다 (2026-09-28, done.md 91행 "디스코드 웹훅 알림(`notification` 패키지)"로 확인). 현재 단계 설명도 5번 로드맵 변경에 맞게 고친다.
 
-8. 거래 기록 CSV에 전략 이름과 청산 사유 두 칸을 추가한다. 여러 전략을 가상매매와 실전으로 돌릴 것이라 어느 전략의 거래인지 구분해야 한다.
-- 청산 사유(익절/손절/시간 청산/수동) 판별 가능성을 코드로 확인함(2026-09-28): 웹소켓 체결 이벤트(`OrderEventSnapshot`)에는 orderId, orderType, price는 있지만 조건주문(OCO) ID나 어느 leg인지 표시하는 필드가 없다. 시간 청산은 `HoldingTimeExitService`가 자신이 낸 주문의 orderId를 직접 기억해두는 방식으로 이미 구분하지만, OCO 익절/손절 구분은 이 방식이 없다. 체결가를 봇이 계산해둔 익절가/손절가와 비교하는 등의 방법을 제안하고 사용자에게 물어본다.
-- 실전에서는 매수를 사용자가 직접 하므로, 수동 매수 거래에 전략 이름을 어떻게 붙일지 방법을 제안하고 물어본다 (예: 봇의 매수 후보 알림을 보고 산 경우와 그냥 산 경우를 구분).
-- 기존 CSV와의 호환은 `TradeRecordWriter`에 이미 있는 `LEGACY_HEADER` 방식(구 헤더 감지 → 새 컬럼 추가 → 기존 행에 빈 값을 붙여 원자적으로 교체)을 그대로 따른다 (2026-09-28, 코드로 패턴 확인). 테스트도 추가한다.
+8. [완료 2026-09-28] 거래 기록 CSV에 전략 이름과 청산 사유 두 칸을 추가한다. 여러 전략을 가상매매와 실전으로 돌릴 것이라 어느 전략의 거래인지 구분해야 한다.
+- 청산 사유 판별 방식은 사용자에게 확인 후 진행: OCO 등록/수정 시점에 계산해두는 익절가/손절가(`AtrOcoPricing`)를 `AtrOcoManagementService`가 심볼별로 기억해뒀다가(`lastKnownPrices`), 매도 체결가와 비교해 익절/손절을 판정한다. 시간 청산은 기존 `HoldingTimeExitService.pendingAutoSellAvgPrice`를 소비하지 않고 조회만 하는 `isPendingAutoSell()`로 구분한다. 둘 다 아니면 수동이다. 새 컴포넌트 `ExitReasonClassifier`(records 패키지)로 판정 로직을 모았다.
+- 전략 이름 컬럼은 사용자가 매수 자체를 전략 기반 자동매매로 넘길 장기 계획(리뷰 대화 중 확인, review-tasks.md 9번 설계안과 연결)을 갖고 있다는 점을 확인했지만, 이 CSV(`manual_trades.csv`)는 4단계 소액 실전 전까지 계속 수동 매매만 담기므로 지금은 `TradeRecordWriter.STRATEGY_MANUAL`("manual") 고정값만 쓴다. 가상매매(9번)는 별도 기록 파일을 쓰고, 실제 자동 매수 주문이 이 파일에 남기 시작하면 그때 전략 이름을 실제로 채우는 로직을 추가한다.
+- 기존 CSV와의 호환은 `TradeRecordWriter`의 헤더 마이그레이션을 일반화해서 처리한다: 아주 옛 형식(13컬럼)과 중간 형식(15컬럼, filled_at/source까지) 둘 다에서 새 17컬럼 형식으로 옮긴다. 컬럼 수 차이만큼 빈 값을 붙여 기존 행을 유지한다.
+- 체결 이벤트 처리 순서를 맞췄다: `syncAfterSellFill()`이 OCO를 정리/갱신해 `lastKnownPrices`를 지우거나 바꾸기 전에 먼저 청산 사유를 판정한다.
+- 한계: 봇이 시간 청산 매도 접수와 체결 사이에 재시작되면 재동기화로 찾은 그 매도의 청산 사유가 time_exit이 아니라 잘못 판정될 수 있다 (기존에 감수하기로 한 연속 손실 판정의 한계와 같은 원인). docs/todo.md의 나중에 항목에 기록.
+- 테스트 추가: `TradeRecordWriterTest`(두 형식 마이그레이션), `ExitReasonClassifierTest`(신규), `AtrOcoManagementServiceTest`(가격 기억), `HoldingTimeExitServiceTest`(`isPendingAutoSell`), `OrderEventWebSocketHandlerTest`/`OrderResyncServiceTest`(연결 확인). 세부 근거는 docs/troubleshooting.md "청산 사유 추정(`ExitReasonClassifier`)" 참고.
 
 9. 가상매매 설계안을 만든다. 구현은 하지 않는다. 목표는 사용자가 개입하지 않고, 봇이 실시간 시세로 전략 A와 B의 조건을 찾아 가상으로 사고, 현재 청산 규칙 v0으로 가상으로 팔고, 모두 CSV로 기록하는 것.
 - 실제 주문이 나갈 수 있는 경로가 구조적으로 없어야 한다. 기존 주문 서비스를 플래그로 재사용하지 말고, 가상매매 코드는 주문과 조건주문 API 클라이언트에 아예 접근할 수 없게 분리하는 방안을 제안한다. 이를 검증하는 테스트 방법도 넣는다.
