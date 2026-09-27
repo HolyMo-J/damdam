@@ -16,6 +16,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -255,5 +259,70 @@ class AtrOcoManagementServiceTest {
 		assertFalse(touched);
 		verify(conditionalOrderService, never()).createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
 			anyString(), anyString(), anyString(), anyString());
+	}
+
+	// 웹소켓 체결, 재동기화, 정기 점검이 각자 스레드에서 동시에 불러도 같은 종목은 한 번에 하나씩만 처리돼야 한다.
+	// 시간에 기대는 측정 대신, 첫 번째 스레드를 의도적으로 붙잡아둔 채 두 번째가 락을 넘지 못하는지 직접 확인한다
+	@Test
+	void serializesConcurrentCallsForTheSameSymbol() throws InterruptedException {
+		CountDownLatch firstEntered = new CountDownLatch(1);
+		CountDownLatch releaseFirst = new CountDownLatch(1);
+		AtomicInteger callCount = new AtomicInteger();
+		when(holdingsService.getHoldings(ACCOUNT)).thenAnswer(invocation -> {
+			if (callCount.incrementAndGet() == 1) {
+				firstEntered.countDown();
+				releaseFirst.await(2, TimeUnit.SECONDS);
+			}
+			return new HoldingsOverview(null, null, null, null, List.of(holding("5")));
+		});
+		when(atrService.getAtr14(anyString())).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.findOpenConditionalOrder(anyLong(), anyString())).thenReturn(Optional.empty());
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.PLACED, "oco-1", null));
+
+		Thread first = new Thread(() -> service.syncAfterBuyFill(ACCOUNT, SYMBOL));
+		first.start();
+		assertTrue(firstEntered.await(2, TimeUnit.SECONDS), "첫 번째 스레드가 락 안으로 들어가지 못했다");
+
+		Thread second = new Thread(() -> service.syncAfterBuyFill(ACCOUNT, SYMBOL));
+		second.start();
+		Thread.sleep(200); // 두 번째가 락에 막혀 아직 못 들어왔는지 확인할 시간을 준다 (여유 시간일 뿐, 결과 판정은 시간에 기대지 않는다)
+		assertEquals(1, callCount.get(), "첫 번째가 아직 안 끝났는데 두 번째가 락을 넘어 들어왔다");
+
+		releaseFirst.countDown();
+		first.join(2000);
+		second.join(2000);
+
+		assertEquals(2, callCount.get());
+	}
+
+	// 종목이 다르면 락도 따로라 동시에 처리될 수 있다 (전역 락으로 과도하게 직렬화하지 않았는지 확인).
+	// 두 스레드가 같은 지점(barrier)에 함께 도착해야만 통과되므로, 만약 실수로 전역 락을 썼다면 한쪽이 타임아웃으로 실패한다
+	@Test
+	void doesNotSerializeCallsForDifferentSymbols() throws InterruptedException {
+		String otherSymbol = "BBB";
+		HoldingItem other = new HoldingItem(otherSymbol, "테스트2", "KR", "KRW", "5", "100", "100", null, null, null, null);
+		CyclicBarrier bothEntered = new CyclicBarrier(2);
+		AtomicInteger passedBarrier = new AtomicInteger();
+		when(holdingsService.getHoldings(ACCOUNT)).thenAnswer(invocation -> {
+			bothEntered.await(2, TimeUnit.SECONDS);
+			passedBarrier.incrementAndGet();
+			return new HoldingsOverview(null, null, null, null, List.of(holding("5"), other));
+		});
+		when(atrService.getAtr14(anyString())).thenReturn(new BigDecimal("2"));
+		when(conditionalOrderService.findOpenConditionalOrder(anyLong(), anyString())).thenReturn(Optional.empty());
+		when(conditionalOrderService.createAtrOco(anyLong(), anyString(), anyString(), anyString(), anyString(),
+			anyString(), anyString(), anyString(), anyString()))
+			.thenReturn(new ConditionalOrderPlacementResult(ConditionalOrderPlacementResult.Status.PLACED, "oco-1", null));
+
+		Thread first = new Thread(() -> service.syncAfterBuyFill(ACCOUNT, SYMBOL));
+		Thread second = new Thread(() -> service.syncAfterBuyFill(ACCOUNT, otherSymbol));
+		first.start();
+		second.start();
+		first.join(3000);
+		second.join(3000);
+
+		assertEquals(2, passedBarrier.get());
 	}
 }

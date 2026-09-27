@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 // 매수 체결마다 평단가 기준으로 ATR 익절/손절 OCO를 등록하거나 기존 걸 수정한다 (docs/strategy.md v0)
 @Service
@@ -32,6 +34,10 @@ public class AtrOcoManagementService {
 	// 마지막으로 등록/수정에 성공한 OCO의 익절/손절 가격을 심볼별로 기억해둔다 (청산 사유 판정용, ExitReasonClassifier가 읽는다).
 	// OCO가 트리거되면 조건주문 조회로는 더 이상 이 가격을 못 얻으므로 등록/수정 시점에 미리 남겨둔다. 실제 서버 값이 아니라 이 값 기준의 추정이다
 	private final Map<String, AtrOcoPricing.Prices> lastKnownPrices = new ConcurrentHashMap<>();
+	// 웹소켓 체결 이벤트, 재동기화, 정기 점검(OcoPeriodicCheckService)이 각자 스레드에서 같은 종목의 OCO를
+	// 동시에 건드릴 수 있어서(2026-09-28, docs/todo.md "동시성" 항목) 종목별로 직렬화한다. ReentrantLock이라
+	// 같은 스레드가 겹쳐 부르는 것(예: syncAfterSellFill 안에서 cancelIfOpen 호출)은 그대로 통과한다
+	private final Map<String, ReentrantLock> symbolLocks = new ConcurrentHashMap<>();
 
 	public AtrOcoManagementService(HoldingsService holdingsService, AtrService atrService,
 			ConditionalOrderService conditionalOrderService, Notifier notifier, TradingHaltSwitch haltSwitch) {
@@ -44,75 +50,103 @@ public class AtrOcoManagementService {
 
 	// 매수 체결(신규/추가매수) 이벤트를 받으면 현재 평단가와 보유 수량으로 OCO를 최신화한다
 	public void syncAfterBuyFill(long accountSeq, String symbol) {
-		try {
-			doSync(accountSeq, symbol);
-		} catch (Exception e) {
-			log.warn("[OCO 갱신] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
-			alertOcoProblem(symbol, "OCO 등록/수정 중 오류: " + e.getMessage());
-		}
+		withSymbolLock(symbol, () -> {
+			try {
+				doSync(accountSeq, symbol);
+			} catch (Exception e) {
+				log.warn("[OCO 갱신] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+				alertOcoProblem(symbol, "OCO 등록/수정 중 오류: " + e.getMessage());
+			}
+		});
 	}
 
 	// 매도가 완전히 체결(FILL)된 뒤에 호출한다. 주문 접수 직후가 아니라 체결을 확인한 뒤에 정리해야,
 	// 매도가 거부되거나 체결이 안 되는 동안에는 손절 보호(OCO)가 유지된다.
 	// 보유가 0이면 남은 OCO를 취소하고, 일부만 팔린 경우에는 이미 있는 OCO의 수량만 남은 보유량에 맞춘다 (없던 OCO를 새로 만들지는 않는다)
 	public void syncAfterSellFill(long accountSeq, String symbol) {
-		try {
-			Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
-			if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
-				cancelIfOpen(accountSeq, symbol);
-				return;
+		withSymbolLock(symbol, () -> {
+			try {
+				Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
+				if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
+					cancelIfOpen(accountSeq, symbol);
+					return;
+				}
+				if (conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).isPresent()) {
+					doSync(accountSeq, symbol);
+				}
+			} catch (Exception e) {
+				log.warn("[OCO 정리] {} 매도 체결 후 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+				alertOcoProblem(symbol, "매도 체결 후 OCO 정리 중 오류: " + e.getMessage());
 			}
-			if (conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).isPresent()) {
-				doSync(accountSeq, symbol);
-			}
-		} catch (Exception e) {
-			log.warn("[OCO 정리] {} 매도 체결 후 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
-			alertOcoProblem(symbol, "매도 체결 후 OCO 정리 중 오류: " + e.getMessage());
-		}
+		});
 	}
 
 	// 재동기화용: OCO가 없거나 수량이 보유량과 다르면 등록/수정한다. 손댔으면 true
 	public boolean ensureOco(long accountSeq, String symbol) {
-		try {
-			Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
-			if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
+		return withSymbolLock(symbol, () -> {
+			try {
+				Optional<HoldingItem> holding = findHolding(accountSeq, symbol);
+				if (holding.isEmpty() || new BigDecimal(holding.get().quantity()).signum() <= 0) {
+					return false;
+				}
+				if (!"KRW".equals(holding.get().currency())) {
+					return false; // 해외는 관리 대상이 아니다. 알림은 매수/매도 체결 시점(doSync)에서만 한다
+				}
+				Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
+				if (existing.isPresent()
+						&& new BigDecimal(existing.get().quantity()).compareTo(new BigDecimal(holding.get().quantity())) == 0) {
+					return false;
+				}
+				doSync(accountSeq, symbol);
+				return true;
+			} catch (Exception e) {
+				log.warn("[OCO 확인] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
+				alertOcoProblem(symbol, "재동기화 중 OCO를 확인/등록하지 못했습니다: " + e.getMessage());
 				return false;
 			}
-			if (!"KRW".equals(holding.get().currency())) {
-				return false; // 해외는 관리 대상이 아니다. 알림은 매수/매도 체결 시점(doSync)에서만 한다
-			}
-			Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
-			if (existing.isPresent()
-					&& new BigDecimal(existing.get().quantity()).compareTo(new BigDecimal(holding.get().quantity())) == 0) {
-				return false;
-			}
-			doSync(accountSeq, symbol);
-			return true;
-		} catch (Exception e) {
-			log.warn("[OCO 확인] {} 처리 중 오류로 건너뜁니다: {}", symbol, e.getMessage());
-			alertOcoProblem(symbol, "재동기화 중 OCO를 확인/등록하지 못했습니다: " + e.getMessage());
-			return false;
-		}
+		});
 	}
 
 	// 포지션이 0이 되면 남은 OCO를 정리한다. 해외 종목의 OCO는 관리 대상이 아니라서 건드리지 않는다 (그대로 둔다)
 	public void cancelIfOpen(long accountSeq, String symbol) {
+		withSymbolLock(symbol, () -> {
+			try {
+				conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).ifPresent(detail -> {
+					if (!"KR".equals(detail.market())) {
+						// 포지션은 0이 됐지만 워칭 중인 매도 조건주문이 남아 있어서, 나중에 재매수하면 새 수량/평단가와 안 맞을 수 있다
+						log.warn("[OCO 정리] {} 해외 종목이라 남은 OCO를 그대로 둡니다.", symbol);
+						notifier.send("oco-overseas-leftover-" + symbol, "[담담] " + symbol
+							+ " 포지션은 청산됐지만 해외 종목이라 남은 OCO를 정리하지 않았습니다. 필요하면 앱에서 직접 취소하세요.");
+						return;
+					}
+					if (!conditionalOrderService.cancelConditionalOrder(accountSeq, detail.conditionalOrderId())) {
+						alertOcoProblem(symbol, "남은 OCO를 취소하지 못했습니다");
+					}
+				});
+			} catch (Exception e) {
+				log.warn("[OCO 정리] {} 처리 중 오류: {}", symbol, e.getMessage());
+				alertOcoProblem(symbol, "남은 OCO를 정리하는 중 오류가 났습니다: " + e.getMessage());
+			}
+		});
+	}
+
+	private void withSymbolLock(String symbol, Runnable action) {
+		ReentrantLock lock = symbolLocks.computeIfAbsent(symbol, s -> new ReentrantLock());
+		lock.lock();
 		try {
-			conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol).ifPresent(detail -> {
-				if (!"KR".equals(detail.market())) {
-					// 포지션은 0이 됐지만 워칭 중인 매도 조건주문이 남아 있어서, 나중에 재매수하면 새 수량/평단가와 안 맞을 수 있다
-					log.warn("[OCO 정리] {} 해외 종목이라 남은 OCO를 그대로 둡니다.", symbol);
-					notifier.send("oco-overseas-leftover-" + symbol, "[담담] " + symbol
-						+ " 포지션은 청산됐지만 해외 종목이라 남은 OCO를 정리하지 않았습니다. 필요하면 앱에서 직접 취소하세요.");
-					return;
-				}
-				if (!conditionalOrderService.cancelConditionalOrder(accountSeq, detail.conditionalOrderId())) {
-					alertOcoProblem(symbol, "남은 OCO를 취소하지 못했습니다");
-				}
-			});
-		} catch (Exception e) {
-			log.warn("[OCO 정리] {} 처리 중 오류: {}", symbol, e.getMessage());
-			alertOcoProblem(symbol, "남은 OCO를 정리하는 중 오류가 났습니다: " + e.getMessage());
+			action.run();
+		} finally {
+			lock.unlock();
+		}
+	}
+
+	private <T> T withSymbolLock(String symbol, Supplier<T> action) {
+		ReentrantLock lock = symbolLocks.computeIfAbsent(symbol, s -> new ReentrantLock());
+		lock.lock();
+		try {
+			return action.get();
+		} finally {
+			lock.unlock();
 		}
 	}
 
