@@ -24,12 +24,15 @@ public class MarketCalendarQueryRunner implements CommandLineRunner {
 	}
 
 	@Override
-	public void run(String... args) {
+	public void run(String... args) throws InterruptedException {
 		LocalDate today = LocalDate.now();
 		for (int offset = -3; offset <= 3; offset++) {
 			LocalDate date = today.plusDays(offset);
 			boolean tradingDay = marketCalendarService.isTradingDay(date);
 			log.info("[국내 캘린더] {} ({}) 개장일: {}", date, date.getDayOfWeek(), tradingDay);
+			// 새 프로세스라 캐시가 비어 있어 7개 날짜 모두 실제 API를 부른다. 휴장일 조회는 초당 3회 제한(MARKET_INFO
+			// 그룹)이라 딜레이 없이 연달아 부르면 429가 난다 (2026-09-28 실측으로 확인)
+			Thread.sleep(400);
 		}
 	}
 }
