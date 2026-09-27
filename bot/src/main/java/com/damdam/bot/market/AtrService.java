@@ -1,8 +1,11 @@
 package com.damdam.bot.market;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -16,18 +19,25 @@ public class AtrService {
 	private static final int FETCH_COUNT = ATR_PERIOD + 2;
 
 	private final MarketDataService marketDataService;
+	private final Clock clock;
 
+	@Autowired
 	public AtrService(MarketDataService marketDataService) {
+		this(marketDataService, Clock.systemUTC());
+	}
+
+	AtrService(MarketDataService marketDataService, Clock clock) {
 		this.marketDataService = marketDataService;
+		this.clock = clock;
 	}
 
 	// 오늘 날짜 봉은 장중에는 아직 확정되지 않은 진행 중인 캔들일 수 있어 계산에서 제외한다.
 	// 공식 문서(GET /api/v1/candles)에는 첫 봉이 진행 중인 캔들인지 명시돼 있지 않아, 확인 여부와 무관하게 방어적으로 걸러낸다
 	public BigDecimal getAtr14(String symbol) {
 		List<Candle> candles = marketDataService.getDailyCandles(symbol, FETCH_COUNT);
-		LocalDate today = LocalDate.now();
+		Instant now = clock.instant();
 		List<Candle> settledCandles = candles.stream()
-			.filter(candle -> !OffsetDateTime.parse(candle.timestamp()).toLocalDate().isEqual(today))
+			.filter(candle -> !isToday(candle, now))
 			.toList();
 
 		if (settledCandles.size() < ATR_PERIOD + 1) {
@@ -36,5 +46,14 @@ public class AtrService {
 					.formatted(ATR_PERIOD, ATR_PERIOD + 1, settledCandles.size(), candles.size()));
 		}
 		return AverageTrueRange.calculate(settledCandles.subList(0, ATR_PERIOD + 1), ATR_PERIOD);
+	}
+
+	// 일봉의 timestamp는 "현지(그 종목 시장의) 자정 고정"이라(공식 명세, Candle.timestamp 설명), 오늘 날짜도 그 캔들 자신의
+	// 시간대(offset)로 판정해야 한다. 시스템(JVM) 기본 시간대로 today를 구하면, 해외 종목처럼 그 시장과 한국의 날짜가
+	// 갈리는 시간대(예: 한국 자정 전후, 서버가 UTC일 때는 더 자주)에 진행 중인 봉을 걸러내지 못할 수 있다
+	private static boolean isToday(Candle candle, Instant now) {
+		OffsetDateTime candleTime = OffsetDateTime.parse(candle.timestamp());
+		LocalDate todayAtCandleOffset = OffsetDateTime.ofInstant(now, candleTime.getOffset()).toLocalDate();
+		return candleTime.toLocalDate().isEqual(todayAtCandleOffset);
 	}
 }
