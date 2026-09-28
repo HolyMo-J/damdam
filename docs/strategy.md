@@ -139,7 +139,16 @@
 ### 구현 현황 (2026-09-29)
 - 구현됨: 전략 B 신호(`IchimokuCloudBreakout`), 전략 A 신호(`InstitutionNetBuySignal`), 주문 경로 차단 가드 테스트(`PaperTradingIsolationTest`). 신호 두 개는 `com.damdam.bot.papertrading` 패키지의 API를 부르지 않는 순수 계산이고 단위 테스트로 검증했다 (경계값과 손계산, 코드를 일부러 망가뜨려도 테스트가 잡는지 확인)
 - 구현됨 (2026-09-29): 대상 종목군 필터. `TargetUniverseService.build()`가 순위, 종목 정보, 종목별 경고 조회를 이어서 `TargetUniverse`(통과 종목과 제외 사유)를 돌려준다. 세부는 아래 "대상 종목군" 참고. 호출 스케줄은 아직 없다
-- 아직 없음: 데이터 조회 연결(신호 계산에 넣을 일봉과 매매동향 조회), 신호 확정 시점 스케줄, 가상 체결과 기록, 청산 규칙 적용, 주간 손실 한도
+- 구현됨 (2026-09-29): 데이터 조회 연결. `SignalScanService.scan(TargetUniverse, 신호일)`이 종목마다 `SignalInputService`로 일봉 100봉(전략 B는 78봉 필요)과 기관 매매동향 10건(전략 A는 3거래일 필요)을 조회해 신호 함수 두 개를 호출하고, 종목별 결과(`SignalScan.Row`)를 거래대금 순위 순서로 돌려준다
+  - 판정 결과는 전략마다 `StrategyOutcome`의 상태로 구분한다: `EVALUATED`(판정 끝, 신호 여부는 result), `INSUFFICIENT_CANDLES`(봉 부족, 정상 건너뜀), `DATA_ERROR`(날짜 불일치, 기록 누락, 순서나 형식 오류), `FETCH_FAILED`(조회 실패). 조회 실패와 데이터 오류는 "신호 없음"이 아니며 `ichimokuSignaled()`, `institutionSignaled()`는 판정을 끝낸 경우에만 true다
+  - 신호 함수 호출 규약을 지킨다: `InsufficientCandlesException`만 건너뛰고 그 밖의 입력 오류(`IllegalArgumentException`, 날짜 형식 오류)는 삼키지 않고 DATA_ERROR로 결과와 경고 로그에 남긴다. 알림 전송은 `notification` 패키지가 가드 허용 목록 밖이라 스케줄 조각에서 붙인다
+  - fail-closed: 일봉 응답이 비었거나(본문 `{}` 포함) 봉에 시각, 고가, 저가, 종가, 거래량이 빠져 있으면 봉이 모자란 신규 상장으로 오해하거나 NPE로 스캔 전체를 멈추지 않도록 그 종목의 조회 실패로 올린다. **전략마다** 판정을 끝낸(EVALUATED) 종목이 전체의 50% 이상이어야 결과를 정상으로 돌려주고, 미달이면(조회 API 전체 장애, 전략 A 조회만 전부 실패, 모든 종목 봉 부족, 스캔 도중 토큰 무효화 등) 예외를 던진다. 50%는 데이터로 정한 값이 아니라 "봉이 모자란 종목이 절반을 넘지 않는다"는 가정이라, 가상매매를 돌려 실제 비율을 보고 조정한다. `SignalScan`에는 전략별 상태 건수(`ichimokuCount`, `institutionCount`)가 있다
+  - 신호일 이후의 봉(다음 거래일 장 시작 뒤에 생긴 잠정 봉 등)은 목록 맨 앞에서 버리고 신호일 기준으로 판정한다. 신호 함수는 0번 봉이 정확히 신호일이어야 해서, 버리지 않으면 재실행 때 전 종목이 날짜 불일치가 된다. NXT 개장 뒤 다음 거래일 봉이 실제로 생기는지는 확인 못 함이다
+  - `SignalScan.scannedAt`(Clock 기준 실행 시각)과 종목별 `institutionRecordUpdatedAt`(신호일 매매동향 기록의 `updatedAt`)을 결과에 남긴다. 신호일 당일 저녁 확정 전에 돌려 잠정치로 신호가 났는지를 나중에 다시 볼 수 있게 하고, `updatedAt`으로 확정 여부를 판별할 수 있는지 관찰하는 데 쓴다. 신호일과 실행 시각을 검사해 거부하지는 않는다 (확정 시각을 모르기 때문이고 스케줄 조각의 몫)
+  - 인터럽트를 받으면 남은 종목을 계속 부르지 않고 결과를 만들지 않은 채 예외로 끝난다. `scan()`은 상태가 없어 동시에 두 번 불려도 막지 않으므로 겹치지 않게 하는 것은 스케줄의 몫이다. `Retry-After`는 음수면 기본 1초, 60초를 넘으면 60초로 자른다
+  - 매매동향 조회(`GET /api/v1/stocks/{symbol}/investor-trading`, `STOCK_TRADING_TREND` 초당 10회)는 `stocks` 패키지의 `InvestorTradingService`가 하고, 기관 합계 순매수 거래량과 날짜만 뽑는다. 429는 `Retry-After` 뒤 1회 재시도하는 공용 처리(`RateLimitRetry`)를 경고 조회와 같이 쓴다. 종목 사이 간격은 120ms(초당 약 8회)다
+  - 이 코드는 당일 매매동향 기록이 확정치인지 판단하지 못한다. 저녁 실행 시각은 스케줄 조각에서 정하고 실제 갱신 시각을 관찰해야 한다 (위 "전략 A"와 todo.md의 확인 필요 참고). 일봉 조회는 `MarketDataService`에 429 재시도가 없어서 `SignalInputService`가 그 위에 씌우는데, 1단계 ATR 조회와 `MARKET_DATA_CHART` 한도(초당 20회)를 나눠 쓰므로 스캔을 겹쳐 돌리지 않는다
+- 아직 없음: 신호 확정 시점 스케줄, 가상 체결과 기록, 청산 규칙 적용, 주간 손실 한도
 - 호출하는 쪽이 지켜야 할 규약: 신호 함수는 확정된 신호일 봉이 0번인 최신순 일봉과 `expectedSignalDate`를 받고 날짜가 다르면 예외를 던진다. 그 봉이 정말 확정치인지는 코드가 알 수 없어서 호출부 책임이다. 봉이 모자라는 경우(신규 상장 등)는 `InsufficientCandlesException`으로만 던지므로 호출부는 그것만 건너뛰고, 데이터 오류(`IllegalArgumentException`)는 삼키지 않고 알린다
 - 독립 검토(`damdam-reviewer`)를 받고 지적을 코드로 검증해 반영했다 (2026-09-29). 반영 내용은 신호일 날짜 검증, 봉 부족 전용 예외, 테스트 보강, 가드 강화이고, 전략 B 표시 이동은 아래 "전략 B"에 있다
 

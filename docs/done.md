@@ -219,6 +219,12 @@
 - `damdam-reviewer` 독립 검토를 받고 지적을 코드와 명세로 검증해 반영했다. 반영: 종목 정보 조회 결과가 비었거나 통과 종목이 0개면(경고 API 전체 장애가 종목별 조회 실패로 쌓인 경우 포함) 빈 종목군을 정상 결과로 돌려주지 않고 예외를 던진다, 경고 조회 실패 종목 수를 경고 로그로 남긴다. 검증 결과 사실이 아니었던 것: 필드가 빠지면 false로 읽힌다는 우려(실제로는 역직렬화 예외, `StockInfoServiceTest`로 고정), 경고 코드명 불일치 우려(`openapi.json` enum과 대조 완료). 확인 못 함으로 남긴 것은 아래 todo.md 항목 참고
 - 실행 중 실수: 테스트 파일을 한 번에 만들다 셸 따옴표 오류로 아무것도 안 써진 것을 확인하고 파일 도구로 다시 만들었고, 목 서버에 기대를 두 번 거는 테스트는 `reset()`이 필요해 한 번 실패했다
 
+### 데이터 조회 연결 (2026-09-29)
+- `stocks` 패키지: `InvestorTradingService`(투자자별 매매동향 조회, 기관 순매수 거래량과 날짜만 추출), `SignalInputService`(종목 하나의 일봉 100봉과 매매동향 10건 조회), `RateLimitRetry`(429 재시도와 예외 변환 공용화), `StockLookupException`(조회 실패 공통 예외, `StockWarningLookupException`이 상속). 기존 `StockWarningService`는 `RateLimitRetry`를 쓰도록 바꿨고 기존 테스트 8개가 그대로 통과했다
+- `papertrading` 패키지: `SignalScanService`, `SignalScan`, `StrategyOutcome`. 종목마다 전략 A, B를 판정하고, 조회 실패와 데이터 오류와 봉 부족을 신호 없음과 구분해서 남긴다. 조회 전용이고 `PaperTradingIsolationTest` 허용 목록은 바꾸지 않았다
+- 테스트 36개 추가 (전체 228개 통과). 코드를 일부러 망가뜨려(전체 실패 예외 제거, IllegalArgumentException 캐치 제거, 빈 일봉 검사 제거) 테스트 6개가 잡는 것도 확인하고 원복했다
+- `damdam-reviewer` 독립 검토를 받고 지적을 코드와 명세로 검증해 반영했다. 반영: 전략별 커버리지 검사(전략 A 조회만 전부 실패해도 예외), 신호일 이후 봉 제거, 일봉 응답 null과 봉 값 누락을 조회 실패로 변환(본문 `{}`이면 `MarketDataService`가 null을 돌려줘 NPE가 나는 것을 확인), `scannedAt`과 매매동향 `updatedAt` 보존, 인터럽트 처리, `Retry-After` 하한과 상한. 검증 결과 고치지 않은 것: 전략 A 입력이 과하게 엄격하다는 지적(명세상 `date`, `updatedAt`, `institution`, `netBuyVolume`이 모두 필수 필드라 지금 검사가 명세와 일치). 반영분을 다시 망가뜨려 테스트 7개가 잡는 것도 확인했다
+
 ## 프로젝트 방향 정리
 
 ### 최종 목표와 서버 이전 상황 문서화 (2026-09-29)
