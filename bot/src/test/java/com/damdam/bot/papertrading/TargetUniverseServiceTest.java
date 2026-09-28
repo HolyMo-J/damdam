@@ -1,6 +1,7 @@
 package com.damdam.bot.papertrading;
 
 import com.damdam.bot.ranking.Ranking;
+import com.damdam.bot.ranking.RankingPage;
 import com.damdam.bot.ranking.RankingPrice;
 import com.damdam.bot.ranking.RankingService;
 import com.damdam.bot.stocks.StockInfo;
@@ -16,6 +17,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -49,7 +51,8 @@ class TargetUniverseServiceTest {
 	}
 
 	private void givenRankings(Ranking... rankings) {
-		when(rankingService.getMarketTradingAmountTop("KR", "1d", 100)).thenReturn(List.of(rankings));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false))
+			.thenReturn(new RankingPage("2026-09-28T20:17:36+09:00", List.of(rankings)));
 	}
 
 	@Test
@@ -113,14 +116,15 @@ class TargetUniverseServiceTest {
 
 		service.build();
 
-		// 순위 조회는 어제(1d) 기준 상위 100위 KR로 정확히 이 인자로 불려야 givenRankings의 스텁이 응답한다
-		verify(rankingService).getMarketTradingAmountTop("KR", "1d", 100);
+		// 순위 조회는 전 거래일(1d) 기준 상위 100위 KR이고, 투자유의 제외 옵션은 끈다(마지막 인자 false). 이 인자로 불려야 givenRankings의 스텁이 응답한다
+		verify(rankingService).getMarketTradingAmountPage("KR", "1d", 100, false);
+		verify(rankingService, never()).getMarketTradingAmountPage("KR", "1d", 100, true);
 		verify(stockInfoService).getStocks(List.of("A", "B"));
 	}
 
 	@Test
 	void emptyRankingFailsInsteadOfReturningAnEmptyUniverse() {
-		when(rankingService.getMarketTradingAmountTop(anyString(), anyString(), anyInt())).thenReturn(List.of());
+		when(rankingService.getMarketTradingAmountPage(anyString(), anyString(), anyInt(), anyBoolean())).thenReturn(new RankingPage(null, List.of()));
 		assertThrows(IllegalStateException.class, () -> service.build());
 	}
 

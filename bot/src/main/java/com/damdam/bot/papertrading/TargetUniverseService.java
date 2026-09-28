@@ -1,6 +1,7 @@
 package com.damdam.bot.papertrading;
 
 import com.damdam.bot.ranking.Ranking;
+import com.damdam.bot.ranking.RankingPage;
 import com.damdam.bot.ranking.RankingService;
 import com.damdam.bot.stocks.StockInfo;
 import com.damdam.bot.stocks.StockInfoService;
@@ -54,7 +55,11 @@ public class TargetUniverseService {
 
 	// 순위나 종목 정보 일괄 조회가 실패하면 예외를 그대로 던진다. 종목 하나의 경고 조회 실패는 그 종목만 뺀다
 	public TargetUniverse build() {
-		List<Ranking> rankings = rankingService.getMarketTradingAmountTop(MARKET_COUNTRY, DURATION, RANKING_COUNT);
+		// 순위 옵션(excludeInvestmentCaution)은 끈다. 이 옵션이 정확히 어떤 지정 종목을 빼는지 명세에 설명이 없고 실측으로도 아직 확인하지
+		// 못했다(2026-09-29). 켜 두면 "정리매매, 투자경고, 투자위험, 거래정지만 거른다"는 결정이 API 쪽에서 몰래 넓어질 수 있어서,
+		// 그 네 가지는 아래에서 우리가 직접 거르고 나머지는 거르지 않는다
+		RankingPage page = rankingService.getMarketTradingAmountPage(MARKET_COUNTRY, DURATION, RANKING_COUNT, false);
+		List<Ranking> rankings = page == null || page.rankings() == null ? List.of() : page.rankings();
 		if (rankings.isEmpty()) {
 			// 명세상 집계가 없으면 에러 없이 빈 배열이 온다. 빈 종목군을 정상 결과로 돌려주면 "오늘은 대상 없음"으로 오해되므로 실패로 다룬다
 			throw new IllegalStateException("거래대금 순위가 비어 있어 대상 종목군을 만들 수 없습니다.");
