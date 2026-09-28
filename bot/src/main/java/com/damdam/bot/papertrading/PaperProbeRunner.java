@@ -22,6 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -31,10 +33,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -45,6 +49,8 @@ import java.util.stream.Collectors;
 //   2) excludeInvestmentCaution 옵션이 실제로 어떤 종목을 빼는지 (켠 결과와 끈 결과의 차이 종목의 유의사항 표시)
 //   3) 일봉 count=100이 실제로 몇 개 오는지, timestamp 형식, 0번 봉이 오늘 날짜인지와 그 봉의 종가와 거래량
 //   4) 기관 매매동향의 최신 기록 날짜와 updatedAt, 일봉 0번 봉 날짜와의 일치 여부
+//   5) 옵션을 켠 순위 100개 전부의 매수 유의사항 유형별 집계 (옵션이 빼지 않는 유형이 상위 100개 안에 실제로 있는지)
+//   6) 표본 종목의 순위 항목(현재가, 기준가, 등락률, 거래량)과 일봉 0번 봉의 종가, 거래량 대조 (순위와 일봉의 집계 범위가 같은지)
 // 결과는 콘솔 로그와 ../records/probe/paper-probe.log(git 제외 폴더)에 같은 내용으로 남고 실행할 때마다 이어 붙인다.
 // 계좌 식별값이나 토큰은 다루지 않는다.
 // 사용법: ./gradlew bootRun --args='--spring.profiles.active=paper-probe [종목코드 ...]' (종목코드를 안 주면 순위 1, 2위 종목)
@@ -92,6 +98,7 @@ public class PaperProbeRunner implements CommandLineRunner {
 		lines.add("=== 조사 시작 " + ZonedDateTime.now(KST).format(KST_TIME) + " (KST) ===");
 
 		List<Ranking> ranked = rankingSection(lines);
+		warningCensus(lines, ranked);
 
 		List<String> symbols = Arrays.stream(args).filter(a -> !a.startsWith("--")).toList();
 		if (symbols.isEmpty()) {
@@ -99,7 +106,9 @@ public class PaperProbeRunner implements CommandLineRunner {
 			lines.add("[표본] 종목코드를 안 줘서 순위(옵션 켠 결과) 상위 " + symbols.size() + "개를 씁니다: " + symbols);
 		}
 		for (String symbol : symbols) {
-			Optional<LocalDate> latestCandleDate = candleSection(lines, symbol);
+			String sampleSymbol = symbol;
+			Optional<Ranking> rankingEntry = ranked.stream().filter(r -> r.symbol().equals(sampleSymbol)).findFirst();
+			Optional<LocalDate> latestCandleDate = candleSection(lines, symbol, rankingEntry);
 			flowSection(lines, symbol, latestCandleDate);
 			pause();
 		}
@@ -129,6 +138,56 @@ public class PaperProbeRunner implements CommandLineRunner {
 		} catch (RuntimeException e) {
 			lines.add("[순위] 조회 실패: " + e.getClass().getSimpleName() + " " + e.getMessage());
 			return List.of();
+		}
+	}
+
+	// 5). 순위 목록 전체의 유의사항을 유형별로 센다. 옵션을 켠 순위 안에 투자경고나 단기과열 종목이 있다면 옵션이 그 유형을 빼지 않는다는 뜻이다
+	private void warningCensus(List<String> lines, List<Ranking> ranked) throws InterruptedException {
+		if (ranked.isEmpty()) {
+			return;
+		}
+		Map<String, List<String>> symbolsByType = new TreeMap<>();
+		int failed = 0;
+		int withAny = 0;
+		for (int i = 0; i < ranked.size(); i++) {
+			if (i > 0) {
+				pause();
+			}
+			String symbol = ranked.get(i).symbol();
+			try {
+				List<StockWarning> warnings = stockWarningService.getWarnings(symbol);
+				if (!warnings.isEmpty()) {
+					withAny++;
+				}
+				for (String type : warnings.stream().map(StockWarning::warningType).distinct().toList()) {
+					symbolsByType.computeIfAbsent(type, k -> new ArrayList<>()).add(symbol);
+				}
+			} catch (RuntimeException e) {
+				failed++;
+			}
+		}
+		lines.add("[유의사항 집계] 옵션을 켠 순위 " + ranked.size() + "개 중 유의사항이 있는 종목 " + withAny + "개, 조회 실패 " + failed + "개");
+		Set<String> flagged = new LinkedHashSet<>();
+		symbolsByType.forEach((type, symbols) -> {
+			// VI는 순간적으로 붙었다 사라지는 표시라 개수만 보고, 나머지 유형은 종목까지 보여준다
+			boolean transientType = type.startsWith("VI_");
+			lines.add("  " + type + " " + symbols.size() + "개" + (transientType ? "" : " " + symbols));
+			if (!transientType) {
+				flagged.addAll(symbols);
+			}
+		});
+		if (symbolsByType.isEmpty()) {
+			lines.add("  유의사항이 있는 종목이 없습니다");
+		}
+		if (!flagged.isEmpty()) {
+			try {
+				String names = stockInfoService.getStocks(flagged.stream().limit(MAX_DIFF_LOOKUPS).toList()).stream()
+					.map(info -> info.symbol() + " " + info.name())
+					.collect(Collectors.joining(", "));
+				lines.add("  종목 이름: " + names);
+			} catch (RuntimeException e) {
+				lines.add("  종목 이름 조회 실패: " + e.getClass().getSimpleName() + " " + e.getMessage());
+			}
 		}
 	}
 
@@ -172,7 +231,7 @@ public class PaperProbeRunner implements CommandLineRunner {
 	}
 
 	// 3). 신호 판정이 실제로 받는 일봉(SignalInputService)을 그대로 조회해 본다
-	private Optional<LocalDate> candleSection(List<String> lines, String symbol) {
+	private Optional<LocalDate> candleSection(List<String> lines, String symbol, Optional<Ranking> rankingEntry) {
 		try {
 			List<Candle> candles = signalInputService.getDailyCandles(symbol);
 			lines.add("[일봉] " + symbol + ": 요청 " + SignalInputService.CANDLE_COUNT + "봉, 받은 봉 " + candles.size() + "개");
@@ -183,11 +242,39 @@ public class PaperProbeRunner implements CommandLineRunner {
 			LocalDate latest = DailyCandles.dateOf(candles.get(0));
 			LocalDate today = LocalDate.now(KST);
 			lines.add("  0번 봉 날짜 " + latest + ", 오늘(KST) " + today + " -> " + (latest.equals(today) ? "오늘 봉이 0번에 있음 (장중 잠정이거나 확정)" : "오늘 봉이 아직 없음"));
+			compareWithRanking(lines, candles, rankingEntry);
 			return Optional.of(latest);
 		} catch (RuntimeException e) {
 			lines.add("[일봉] " + symbol + " 조회 실패: " + e.getClass().getSimpleName() + " " + e.getMessage());
 			return Optional.empty();
 		}
+	}
+
+	// 6). 순위 항목과 일봉 0번 봉을 나란히 놓는다. 순위 현재가가 일봉 종가와 다르거나 거래량 배율이 1이 아니면 집계 범위가 다르다는 정황이다
+	// (원인은 이 도구로 단정하지 못한다. 예를 들어 순위는 통합 시세이고 일봉은 정규장만 담을 수 있는지는 확인하지 못했다)
+	private static void compareWithRanking(List<String> lines, List<Candle> candles, Optional<Ranking> rankingEntry) {
+		if (rankingEntry.isEmpty()) {
+			lines.add("  순위 목록(옵션 켠 결과)에 없는 종목이라 순위 항목과의 대조는 생략합니다");
+			return;
+		}
+		Ranking r = rankingEntry.get();
+		Candle today = candles.get(0);
+		lines.add("  순위 항목: " + r.rank() + "위 lastPrice=" + r.price().lastPrice() + " basePrice=" + r.price().basePrice()
+			+ " changeRate=" + r.price().changeRate() + " tradingVolume=" + r.tradingVolume() + " tradingAmount=" + r.tradingAmount());
+		lines.add("  현재가 대조: 순위 lastPrice=" + r.price().lastPrice() + " vs 일봉 0번 종가=" + today.closePrice()
+			+ " -> " + (new BigDecimal(r.price().lastPrice()).compareTo(new BigDecimal(today.closePrice())) == 0 ? "같음" : "다름"));
+		if (candles.size() >= 2) {
+			BigDecimal close0 = new BigDecimal(today.closePrice());
+			BigDecimal close1 = new BigDecimal(candles.get(1).closePrice());
+			if (close1.signum() != 0) {
+				lines.add("  등락률 대조: 순위 changeRate=" + r.price().changeRate() + " vs 일봉 종가 기준 " + close0.subtract(close1).divide(close1, 4, RoundingMode.HALF_UP)
+					+ " (순위 basePrice=" + r.price().basePrice() + ", 일봉 1번 종가=" + close1.toPlainString() + ")");
+			}
+		}
+		BigDecimal rankingVolume = new BigDecimal(r.tradingVolume());
+		BigDecimal candleVolume = new BigDecimal(today.volume());
+		String ratio = rankingVolume.signum() == 0 ? "순위 거래량 0" : candleVolume.divide(rankingVolume, 4, RoundingMode.HALF_UP).toPlainString();
+		lines.add("  거래량 대조: 일봉 0번 " + candleVolume.toPlainString() + " / 순위 " + rankingVolume.toPlainString() + " = " + ratio + " (1에 가까우면 같은 범위)");
 	}
 
 	// 4). 기관 매매동향의 최신 기록 날짜와 갱신 시각을 본다. 저녁 확정 전후로 updatedAt과 순매수량이 어떻게 바뀌는지가 핵심이다

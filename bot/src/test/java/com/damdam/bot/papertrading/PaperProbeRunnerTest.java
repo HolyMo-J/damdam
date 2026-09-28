@@ -115,6 +115,7 @@ class PaperProbeRunnerTest {
 
 		String text = reportText();
 		assertTrue(text.contains("[일봉] X:"), text);
+		assertTrue(text.contains("순위 목록(옵션 켠 결과)에 없는 종목이라 순위 항목과의 대조는 생략합니다"), text);
 		assertTrue(text.contains("최신 기록 날짜 2026-09-25 vs 일봉 0번 날짜 2026-09-28 -> 다름"), text);
 		verify(signalInputService, never()).getDailyCandles("A");
 	}
@@ -132,6 +133,76 @@ class PaperProbeRunnerTest {
 		assertTrue(text.contains("[일봉] X 조회 실패: StockLookupException"), text);
 		assertTrue(text.contains("[매매동향] X: 요청 10건, 받은 기록 1건"), text);
 		assertFalse(text.contains("최신 기록 날짜"), text); // 일봉을 못 받았으니 날짜 비교는 하지 않는다
+	}
+
+	@Test
+	void warningCensusCountsEveryTypeAcrossTheWholeRankingAndNamesTheNotableOnes() throws Exception {
+		RankingPage same = page(ranking(1, "A"), ranking(2, "B"), ranking(3, "C"));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(same);
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(same);
+		when(stockWarningService.getWarnings("A")).thenReturn(List.of(new StockWarning("OVERHEATED", "KRX", "2026-09-01", null)));
+		when(stockWarningService.getWarnings("B")).thenReturn(List.of(
+			new StockWarning("INVESTMENT_WARNING", "KRX", "2026-09-01", null), new StockWarning("VI_STATIC", "KRX", null, null)));
+		when(stockWarningService.getWarnings("C")).thenThrow(new StockLookupException("C", "경고 조회", "HTTP 500"));
+		when(stockInfoService.getStocks(anyList())).thenReturn(List.of(
+			new StockInfo("A", "이름A", "KOSPI", "STOCK", true, "ACTIVE", null),
+			new StockInfo("B", "이름B", "KOSPI", "STOCK", true, "ACTIVE", null)));
+
+		runner.run("X");
+
+		String text = reportText();
+		assertTrue(text.contains("[유의사항 집계] 옵션을 켠 순위 3개 중 유의사항이 있는 종목 2개, 조회 실패 1개"), text);
+		assertTrue(text.contains("INVESTMENT_WARNING 1개 [B]"), text);
+		assertTrue(text.contains("OVERHEATED 1개 [A]"), text);
+		assertTrue(text.contains("VI_STATIC 1개"), text);
+		assertFalse(text.contains("VI_STATIC 1개 ["), text); // VI는 종목 목록 없이 개수만
+		assertTrue(text.contains("종목 이름: A 이름A, B 이름B"), text);
+	}
+
+	@Test
+	void noWarningsAnywhereIsReportedExplicitly() throws Exception {
+		RankingPage same = page(ranking(1, "A"));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(same);
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(same);
+
+		runner.run("X");
+
+		assertTrue(reportText().contains("유의사항이 있는 종목이 없습니다"), reportText());
+	}
+
+	@Test
+	void rankingEntryIsComparedWithTheLatestCandleForPriceChangeRateAndVolume() throws Exception {
+		Ranking entry = new Ranking(1, "A", "KRW", new RankingPrice("105", "100", "0.05"), "2000", "5000");
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(page(entry));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(page(entry));
+		when(signalInputService.getDailyCandles("A")).thenReturn(List.of(
+			new Candle("2026-09-28T00:00+09:00", "100", "110", "90", "105", "1000", "KRW"),
+			new Candle("2026-09-25T00:00+09:00", "100", "110", "90", "100", "900", "KRW")));
+		when(signalInputService.getInstitutionFlows("A")).thenReturn(List.of(flow("2026-09-28")));
+
+		runner.run();
+
+		String text = reportText();
+		assertTrue(text.contains("순위 항목: 1위 lastPrice=105 basePrice=100 changeRate=0.05 tradingVolume=2000 tradingAmount=5000"), text);
+		assertTrue(text.contains("현재가 대조: 순위 lastPrice=105 vs 일봉 0번 종가=105 -> 같음"), text);
+		assertTrue(text.contains("등락률 대조: 순위 changeRate=0.05 vs 일봉 종가 기준 0.0500"), text);
+		assertTrue(text.contains("거래량 대조: 일봉 0번 1000 / 순위 2000 = 0.5000"), text);
+	}
+
+	@Test
+	void differingPriceIsFlaggedAsDifferent() throws Exception {
+		Ranking entry = new Ranking(1, "A", "KRW", new RankingPrice("106", "100", "0.06"), "1000", "5000");
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(page(entry));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(page(entry));
+		when(signalInputService.getDailyCandles("A")).thenReturn(List.of(
+			new Candle("2026-09-28T00:00+09:00", "100", "110", "90", "105", "1000", "KRW"),
+			new Candle("2026-09-25T00:00+09:00", "100", "110", "90", "100", "900", "KRW")));
+		when(signalInputService.getInstitutionFlows("A")).thenReturn(List.of(flow("2026-09-28")));
+
+		runner.run();
+
+		assertTrue(reportText().contains("순위 lastPrice=106 vs 일봉 0번 종가=105 -> 다름"), reportText());
+		assertTrue(reportText().contains("= 1.0000"), reportText());
 	}
 
 	@Test
