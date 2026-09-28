@@ -30,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -203,6 +204,114 @@ class PaperProbeRunnerTest {
 
 		assertTrue(reportText().contains("순위 lastPrice=106 vs 일봉 0번 종가=105 -> 다름"), reportText());
 		assertTrue(reportText().contains("= 1.0000"), reportText());
+	}
+
+	private PaperProbeRunner runnerWithWaiter(List<Long> waits) {
+		return new PaperProbeRunner(rankingService, stockInfoService, stockWarningService, signalInputService, report, 0, waits::add);
+	}
+
+	private void givenSteadyInputs(String symbol) throws Exception {
+		when(signalInputService.getDailyCandles(symbol)).thenReturn(List.of(candle("2026-09-28"), candle("2026-09-25")));
+		when(signalInputService.getInstitutionFlows(symbol)).thenReturn(List.of(flow("2026-09-28")));
+	}
+
+	@Test
+	void repeatModeRunsTheRequestedRoundsWaitsBetweenThemAndDoesTheCensusOnlyOnce() throws Exception {
+		RankingPage same = page(ranking(1, "A"), ranking(2, "B"));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(same);
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(same);
+		givenSteadyInputs("A");
+		givenSteadyInputs("B");
+		List<Long> waits = new java.util.ArrayList<>();
+
+		runnerWithWaiter(waits).run("--repeat-count=3", "--repeat-minutes=5");
+
+		assertEquals(List.of(300_000L, 300_000L), waits);
+		String text = reportText();
+		assertTrue(text.contains("회차 1/3"), text);
+		assertTrue(text.contains("회차 3/3"), text);
+		assertEquals(3, text.split("=== 조사 끝", -1).length - 1, text);
+		// 유의사항 집계(종목마다 조회)는 첫 회차에만 한다
+		verify(stockWarningService, times(1)).getWarnings("A");
+		verify(signalInputService, times(3)).getDailyCandles("A");
+	}
+
+	@Test
+	void withoutRepeatOptionsItRunsOnceAndNeverWaits() throws Exception {
+		RankingPage same = page(ranking(1, "A"));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(same);
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(same);
+		givenSteadyInputs("A");
+		List<Long> waits = new java.util.ArrayList<>();
+
+		runnerWithWaiter(waits).run();
+
+		assertEquals(List.of(), waits);
+		assertFalse(reportText().contains("회차"), reportText());
+		assertFalse(reportText().contains("[변화]"), reportText());
+	}
+
+	@Test
+	void laterRoundsShowOnlyWhatChangedSinceThePreviousRound() throws Exception {
+		RankingPage same = page(ranking(1, "A"));
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, false)).thenReturn(same);
+		when(rankingService.getMarketTradingAmountPage("KR", "1d", 100, true)).thenReturn(same);
+		List<Candle> before = List.of(candle("2026-09-28"), candle("2026-09-25"));
+		List<Candle> after = List.of(new Candle("2026-09-28T00:00+09:00", "100", "110", "90", "106", "1500", "KRW"), candle("2026-09-25"));
+		// 1회차와 2회차는 같은 값, 3회차에서 종가와 거래량이 바뀐다
+		when(signalInputService.getDailyCandles("A")).thenReturn(before, before, after);
+		when(signalInputService.getInstitutionFlows("A")).thenReturn(List.of(flow("2026-09-28")));
+
+		runnerWithWaiter(new java.util.ArrayList<>()).run("--repeat-count=3");
+
+		String text = reportText();
+		assertTrue(text.contains("[변화] 직전 회차("), text);
+		assertTrue(text.contains("대비 달라진 값 없음"), text);
+		assertTrue(text.contains("대비 달라진 값 2개"), text);
+		assertTrue(text.contains("A 일봉 0번 종가: 105 -> 106"), text);
+		assertTrue(text.contains("A 일봉 0번 거래량: 1000 -> 1500"), text);
+	}
+
+	@Test
+	void sampleSymbolsChosenInTheFirstRoundStayTheSameInLaterRounds() throws Exception {
+		when(rankingService.getMarketTradingAmountPage(org.mockito.ArgumentMatchers.eq("KR"), org.mockito.ArgumentMatchers.eq("1d"),
+			org.mockito.ArgumentMatchers.eq(100), org.mockito.ArgumentMatchers.anyBoolean()))
+			.thenReturn(page(ranking(1, "A"), ranking(2, "B")), page(ranking(1, "A"), ranking(2, "B")),
+				page(ranking(1, "C"), ranking(2, "D")), page(ranking(1, "C"), ranking(2, "D")));
+		givenSteadyInputs("A");
+		givenSteadyInputs("B");
+
+		runnerWithWaiter(new java.util.ArrayList<>()).run("--repeat-count=2");
+
+		verify(signalInputService, times(2)).getDailyCandles("A");
+		verify(signalInputService, times(2)).getDailyCandles("B");
+		verify(signalInputService, never()).getDailyCandles("C");
+	}
+
+	@Test
+	void changeLinesReportNewAndMissingObservationsToo() {
+		List<String> lines = new java.util.ArrayList<>();
+		java.util.Map<String, String> previous = new java.util.LinkedHashMap<>();
+		previous.merge("가", "1", (a, b) -> b);
+		previous.merge("나", "2", (a, b) -> b);
+		java.util.Map<String, String> current = new java.util.LinkedHashMap<>();
+		current.merge("가", "1", (a, b) -> b);
+		current.merge("다", "3", (a, b) -> b);
+
+		PaperProbeRunner.changeLines(lines, "20:05:00", previous, current);
+
+		assertEquals("[변화] 직전 회차(20:05:00) 대비 달라진 값 2개", lines.get(0));
+		assertTrue(lines.contains("  다: (이전 회차에 없음) -> 3"), lines.toString());
+		assertTrue(lines.contains("  나: 2 -> (이번 회차에 관측 못 함)"), lines.toString());
+	}
+
+	@Test
+	void numericOptionsFallBackToDefaultsAndAreClamped() {
+		assertEquals(7, PaperProbeRunner.intArg(new String[] {"--repeat-count=abc", "X"}, "--repeat-minutes=", 7, 1, 120));
+		assertEquals(10, PaperProbeRunner.intArg(new String[] {"--repeat-minutes=10"}, "--repeat-minutes=", 7, 1, 120));
+		assertEquals(120, PaperProbeRunner.intArg(new String[] {"--repeat-minutes=9999"}, "--repeat-minutes=", 7, 1, 120));
+		assertEquals(1, PaperProbeRunner.intArg(new String[] {"--repeat-count=0"}, "--repeat-count=", 1, 1, 200));
+		assertEquals(7, PaperProbeRunner.intArg(new String[] {"--repeat-minutes=abc"}, "--repeat-minutes=", 7, 1, 120));
 	}
 
 	@Test
