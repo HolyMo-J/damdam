@@ -137,8 +137,9 @@
 - 장중에 계속 떠 있어야 하는 기능이라 실제 가동은 서버 이전이 끝난 뒤에 한다 (docs/todo.md 참고). 단 코드 구현과 테스트는 서버 없이 할 수 있어서 먼저 진행한다 (2026-09-29 사용자 승인). 구현 현황은 아래 "구현 현황" 참고
 
 ### 구현 현황 (2026-09-29)
-- 구현됨: 전략 B 신호(`IchimokuCloudBreakout`), 전략 A 신호(`InstitutionNetBuySignal`), 주문 경로 차단 가드 테스트(`PaperTradingIsolationTest`). 모두 `com.damdam.bot.papertrading` 패키지의 API를 부르지 않는 순수 계산이고 단위 테스트로 검증했다 (경계값과 손계산, 코드를 일부러 망가뜨려도 테스트가 잡는지 확인)
-- 아직 없음: 대상 종목군 필터, 데이터 조회 연결, 신호 확정 시점 스케줄, 가상 체결과 기록, 청산 규칙 적용, 주간 손실 한도
+- 구현됨: 전략 B 신호(`IchimokuCloudBreakout`), 전략 A 신호(`InstitutionNetBuySignal`), 주문 경로 차단 가드 테스트(`PaperTradingIsolationTest`). 신호 두 개는 `com.damdam.bot.papertrading` 패키지의 API를 부르지 않는 순수 계산이고 단위 테스트로 검증했다 (경계값과 손계산, 코드를 일부러 망가뜨려도 테스트가 잡는지 확인)
+- 구현됨 (2026-09-29): 대상 종목군 필터. `TargetUniverseService.build()`가 순위, 종목 정보, 종목별 경고 조회를 이어서 `TargetUniverse`(통과 종목과 제외 사유)를 돌려준다. 세부는 아래 "대상 종목군" 참고. 호출 스케줄은 아직 없다
+- 아직 없음: 데이터 조회 연결(신호 계산에 넣을 일봉과 매매동향 조회), 신호 확정 시점 스케줄, 가상 체결과 기록, 청산 규칙 적용, 주간 손실 한도
 - 호출하는 쪽이 지켜야 할 규약: 신호 함수는 확정된 신호일 봉이 0번인 최신순 일봉과 `expectedSignalDate`를 받고 날짜가 다르면 예외를 던진다. 그 봉이 정말 확정치인지는 코드가 알 수 없어서 호출부 책임이다. 봉이 모자라는 경우(신규 상장 등)는 `InsufficientCandlesException`으로만 던지므로 호출부는 그것만 건너뛰고, 데이터 오류(`IllegalArgumentException`)는 삼키지 않고 알린다
 - 독립 검토(`damdam-reviewer`)를 받고 지적을 코드로 검증해 반영했다 (2026-09-29). 반영 내용은 신호일 날짜 검증, 봉 부족 전용 예외, 테스트 보강, 가드 강화이고, 전략 B 표시 이동은 아래 "전략 B"에 있다
 
@@ -146,15 +147,21 @@
 
 **안전: 실제 주문 경로 차단 (2026-09-29에 "원천 차단"에서 표현을 낮춤, 아래 한계 참고)**
 - 가상매매 코드는 별도 패키지(가칭 `papertrading`)로 두고, 주문 생성/조건주문 등록·수정·취소 API를 호출하는 `orders`, `conditionalorder` 패키지를 의존성으로 아예 갖지 않는다. 기존 주문 서비스를 플래그로 재사용하지 않는다 (1단계 청산 봇의 `damdam.orders.live-mode`처럼 값 하나로 실전/모의를 가르는 방식은 값이 잘못 켜지는 사고에 취약하기 때문)
-- 가상매매가 실제로 부르는 API는 모두 조회 전용이다: 순위(`GET /api/v1/rankings`), 종목 정보(`GET /api/v1/stocks/all`, `GET /api/v1/stocks`), 매수 유의사항(`GET /api/v1/stocks/{symbol}/warnings`), 투자자별 매매동향(`GET /api/v1/stocks/{symbol}/investor-trading`), 캔들(`GET /api/v1/candles`), 호가(`GET /api/v1/orderbook`)
+- 가상매매가 실제로 부르는 API는 모두 조회 전용이다: 순위(`GET /api/v1/rankings`), 종목 정보(`GET /api/v1/stocks`, `stocks/all`은 쓰지 않기로 함, 아래 "대상 종목군" 참고), 매수 유의사항(`GET /api/v1/stocks/{symbol}/warnings`), 투자자별 매매동향(`GET /api/v1/stocks/{symbol}/investor-trading`), 캔들(`GET /api/v1/candles`), 호가(`GET /api/v1/orderbook`)
 - 검증 방법(구현됨, `PaperTradingIsolationTest`): 소스 텍스트를 검사하는 정적 테스트 3종이다. (1) `papertrading`이 import하는 패키지는 허용 목록(`papertrading`, `market`, `ranking`, `stocks`)만 가능하다. 새 의존이 필요하면 이 목록을 일부러 고치게 된다. (2) 패키지 단위 전이 의존을 따라가서 `orders`, `conditionalorder`, `liquidation`, `orderevent`에 닿지 않는다. (3) `RestClient`, `RestTemplate`, `WebClient`, `HttpClient`, 쓰기 메서드 호출(`.post(`, `.put(`, `.delete(`, `.patch(`), `ApplicationContext`, `BeanFactory`, `Class.forName`을 쓰지 않는다. 임시로 위반 파일을 넣어서 실제로 실패하는 것을 확인했다
 - 한계: 컴파일 시점 강제가 아니라 텍스트 검사라서, 문자열을 조립한 리플렉션처럼 의도적인 우회는 막지 못한다. 실수로 주문 코드에 의존하거나 HTTP 쓰기 호출을 직접 만드는 것을 알아채는 회귀 방지용이다. 별도 모듈로 분리해 Gradle 의존성 자체를 끊는 방법도 있으나, 지금 단일 모듈 구조를 굳이 나눌 정도는 아니라고 보고 정적 테스트 쪽을 택했다. 청산 봇의 `liquidation` 패키지에 있는 거래일 계산(`TradingDayCalculator`)은 가드 때문에 가상매매가 바로 쓸 수 없다. 5거래일 시간 청산 계산이 필요해지면 복제할지 공용 위치로 옮길지 그때 정한다
 
 **대상 종목군 (매일 장 시작 전 1회 갱신)**
 - `GET /api/v1/rankings?type=MARKET_TRADING_AMOUNT&marketCountry=KR&duration=1d&count=100&excludeInvestmentCaution=true`로 전 거래일 거래대금 상위 100종목을 가져온다 (2026-09-28 명세 확인: 시장 전체 기준 거래대금 랭킹이고 최대 100위, 투자유의 종목은 옵션으로 제외 가능)
-- `GET /api/v1/stocks/all`(market=KOSPI/KOSDAQ, securityType, commonShare 필터)과 대조해 ETF, ETN, REIT, 우선주(`isCommonShare=false`)를 제외한다
-- `GET /api/v1/stocks?symbols=...`(다건 조회, 최대 200개까지 한 번에)의 `koreanMarketDetail.liquidationTrading`(정리매매), `krxTradingSuspended`(거래정지)가 true인 종목을 제외한다
+- `GET /api/v1/stocks?symbols=...`(다건 조회, 최대 200개까지 한 번에)의 응답으로 `securityType`이 `STOCK`이 아닌 종목(ETF, ETN, REIT 등)과 우선주(`isCommonShare=false`), `status`가 ACTIVE가 아닌 종목, `market`이 KOSPI와 KOSDAQ이 아닌 종목을 제외한다. 같은 응답의 `koreanMarketDetail.liquidationTrading`(정리매매), `krxTradingSuspended`(거래정지)가 true인 종목도 제외한다
+- **`GET /api/v1/stocks/all`은 호출하지 않는다 (2026-09-29 결정, 원래 설계는 이것과 대조하는 것이었음)**: 다건 조회 응답이 같은 필드(`securityType`, `isCommonShare`, `market`, `status`)를 이미 모두 담은 상위 집합이라 마켓당 수천 건 응답을 따로 받을 이유가 없다. `stocks/all`이 주는 정보(`symbol`, `name`, `securityType`, `isCommonShare`, `isinCode`)는 다건 조회 응답에 전부 있다
 - `GET /api/v1/stocks/{symbol}/warnings`로 활성 `INVESTMENT_WARNING`(투자경고), `INVESTMENT_RISK`(투자위험) 종목을 제외한다 (이 API는 다건 조회가 없어 종목별로 호출해야 하지만, `STOCK` 그룹 한도가 초당 5회라 100종목이면 약 20초, 장 시작 전 1회라 문제없다)
+- 구현 (2026-09-29): `stocks` 패키지에 `StockWarningService`(경고 조회, 429는 `Retry-After`만큼 기다려 1회 재시도, 실패는 `StockWarningLookupException`), `papertrading` 패키지에 `UniverseFilter`(제외 규칙 순수 계산), `TargetUniverseService`(조회 조립, 경고 조회 사이 250ms 간격), `TargetUniverse`, `ExclusionReason`. 경고 조회 코드가 `stocks`에 있는 이유는 `PaperTradingIsolationTest`가 `papertrading` 소스의 `RestClient` 계열 이름을 막기 때문이다
+  - 모르면 통과시키지 않는다(fail-closed): 종목 정보 응답에 없거나, `koreanMarketDetail`이 null이거나, 경고 조회가 끝내 실패하거나, 경고 응답 본문이 비어 있으면 그 종목은 제외하고 사유를 남긴다. 빈 본문을 "경고 없음"으로 읽으면 위험 종목이 통과하기 때문이다
+  - 경고 제외 유형은 `INVESTMENT_WARNING`, `INVESTMENT_RISK`, 그리고 정리매매 플래그와 겹치지만 이중 안전장치로 `LIQUIDATION_TRADING`이다. 단기과열(`OVERHEATED`), VI, 신주인수권, 처음 보는 유형은 제외하지 않는다. `OVERHEATED`를 뺄지는 사용자가 4가지만 거르기로 한 결정을 따랐다
+  - 순위가 비어 오거나, 종목 정보 조회 결과가 비어 있거나, 통과 종목이 0개면(경고 API 전체 장애가 종목별 조회 실패로 쌓인 경우 포함) 빈 종목군을 정상 결과로 돌려주지 않고 예외를 던진다. 순위나 종목 정보 일괄 조회 실패도 예외로 전파하며, 어제 종목군을 유지할지는 스케줄 조각이 정한다. 일부 종목만 경고 조회에 실패한 경우는 그 종목만 빼고 진행하며 경고 로그를 남긴다 (비율 상한은 두지 않았다)
+  - 이 종목군은 하루 한 번의 스냅샷이라 장중에 새로 지정된 투자경고, 정지, 정리매매는 반영되지 않는다. 4단계 실전에서는 매수 직전에 `UniverseFilter.checkInfo`와 `checkWarnings`를 종목별로 다시 돌리는 단계가 필요하다 (2026-09-29 독립 검토 지적)
+  - 명세 확인 못 함: 장 시작 전(예: 08:30)에 `duration=1d`가 정말 "전 거래일" 기준 순위인지, 경고 일배치가 반영되는 시각은 명세에 없다. 실제 시각별 호출로만 확인할 수 있다
 - **확인 못 함**: "스팩"과 순수 "관리종목" 지정을 직접 나타내는 API 필드는 찾지 못했다 (정리매매, 투자경고, 투자위험, 거래정지와는 별개 개념). 사용자 확인(2026-09-28): 위 4가지만 거르고 진행하기로 함. 스팩은 종목명에 보통 "스팩"이 들어가므로, 필요해지면 이름 패턴으로 추가 제외하는 것을 나중에 검토
 
 **전략 A: 기관 순매수 추종 (거래량 기준으로 재정의, 2026-09-28)**
