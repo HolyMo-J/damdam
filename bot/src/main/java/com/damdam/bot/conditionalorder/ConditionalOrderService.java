@@ -1,5 +1,6 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.market.AtrOcoPricing;
 import com.damdam.bot.token.TokenService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

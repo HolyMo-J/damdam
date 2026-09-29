@@ -1,4 +1,4 @@
-package com.damdam.bot.conditionalorder;
+package com.damdam.bot.market;
 
 import org.junit.jupiter.api.Test;
 

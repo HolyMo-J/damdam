@@ -1,5 +1,6 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.market.AtrOcoPricing;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 

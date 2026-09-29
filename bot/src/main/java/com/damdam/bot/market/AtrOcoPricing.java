@@ -1,4 +1,4 @@
-package com.damdam.bot.conditionalorder;
+package com.damdam.bot.market;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

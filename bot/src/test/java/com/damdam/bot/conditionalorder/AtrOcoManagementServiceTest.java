@@ -1,5 +1,6 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.market.AtrOcoPricing;
 import com.damdam.bot.control.TradingHaltSwitch;
 import com.damdam.bot.holdings.HoldingItem;
 import com.damdam.bot.holdings.HoldingsOverview;

@@ -1,5 +1,6 @@
 package com.damdam.bot.conditionalorder;
 
+import com.damdam.bot.market.AtrOcoPricing;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;

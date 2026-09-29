@@ -1,7 +1,7 @@
 package com.damdam.bot.records;
 
 import com.damdam.bot.conditionalorder.AtrOcoManagementService;
-import com.damdam.bot.conditionalorder.AtrOcoPricing;
+import com.damdam.bot.market.AtrOcoPricing;
 import com.damdam.bot.liquidation.HoldingTimeExitService;
 import org.springframework.stereotype.Component;
 
