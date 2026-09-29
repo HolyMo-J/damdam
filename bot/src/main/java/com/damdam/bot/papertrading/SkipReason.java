@@ -13,5 +13,7 @@ public enum SkipReason {
 	// 그 주 실현 손실이 주간 한도를 넘어 새 매수를 멈춘 주
 	WEEKLY_HALT,
 	// 같은 종목을 이미 보유 중 (한 번에 한 포지션만, 청산한 날 같은 종목 재진입 금지)
-	ALREADY_HELD
+	ALREADY_HELD,
+	// 진입 봉이 끝내 오지 않아 포기한 신호 (상장폐지 등. PaperLedger의 포기 규칙, 순수 로직은 이 값을 만들지 않는다)
+	NO_BAR
 }
