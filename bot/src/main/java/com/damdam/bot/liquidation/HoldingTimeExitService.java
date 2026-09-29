@@ -73,7 +73,14 @@ public class HoldingTimeExitService {
 			if (new BigDecimal(item.quantity()).signum() <= 0) {
 				continue;
 			}
-			checkItem(accountSeq, item);
+			try {
+				checkItem(accountSeq, item);
+			} catch (RuntimeException e) {
+				// 조회 타임아웃 같은 예외가 한 종목에서 나도 나머지 보유 종목의 시간 청산 판정이 건너뛰어지지 않게 종목 단위로 막는다
+				log.warn("[시간 청산] {} 처리 중 오류로 이번 회차에서 건너뜁니다: {}", item.symbol(), e.toString());
+				notifier.send("time-exit-error-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 판정 중 오류가 발생해 이번 회차에서 건너뛰었습니다("
+					+ e.getClass().getSimpleName() + "). 다음 영업일 스케줄까지 재시도가 없으니 직접 확인하세요.");
+			}
 		}
 	}
 
@@ -151,6 +158,15 @@ public class HoldingTimeExitService {
 			// 다음 재시도는 다음 영업일 스케줄까지 없으므로, 실패했다는 사실을 반드시 바로 알린다
 			notifier.send("time-exit-failed-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 자동 매도가 실패했습니다: "
 				+ result.errorMessage() + ". 다음 재시도는 다음 영업일이니 직접 확인하세요.");
+			return;
+		}
+		if (result.status() == OrderPlacementResult.Status.UNKNOWN) {
+			log.warn("[시간 청산] {} 자동 매도 응답을 받지 못했습니다. 주문이 접수됐는지 알 수 없습니다: {}", item.symbol(), result.errorMessage());
+			// 주문이 이미 나갔을 수 있으므로 하루 횟수에는 센다(폭주 방지 쪽으로 안전하게). orderId가 없어서 체결 감시 대기 목록에는 넣지 못하고,
+			// 그 체결의 연속 손실 판정은 빠진다(docs/todo.md 확인 필요의 재시작 유실 항목과 같은 종류의 한계)
+			autoSellGuard.recordDailyAttempt();
+			notifier.send("time-exit-unknown-" + item.symbol(), "[담담] " + item.symbol() + " 시간 청산 자동 매도 응답을 받지 못했습니다("
+				+ result.errorMessage() + "). 주문이 접수됐는지 알 수 없으니 증권사 앱에서 주문 내역과 보유 수량을 직접 확인하세요. 재시도는 다음 영업일 스케줄까지 없습니다.");
 			return;
 		}
 		if (result.status() == OrderPlacementResult.Status.SIMULATED) {

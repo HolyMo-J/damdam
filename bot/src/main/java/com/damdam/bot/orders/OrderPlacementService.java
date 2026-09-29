@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -50,6 +51,11 @@ public class OrderPlacementService {
 		} catch (RestClientResponseException e) {
 			log.warn("[실주문 실패] SELL {} {}주 시장가 거부됨: {}", symbol, quantity, e.getMessage());
 			return new OrderPlacementResult(OrderPlacementResult.Status.FAILED, null, clientOrderId, e.getMessage());
+		} catch (ResourceAccessException e) {
+			// 서버가 오류 응답을 준 게 아니라 응답 자체를 못 받은 경우(읽기 타임아웃 등)다. 요청이 서버에 도달했는지 알 수 없어서
+			// 거부(FAILED)와 구분한다. 연결 자체가 안 된 경우도 같은 예외라 구분하지 않고 불명으로 둔다(안전한 쪽)
+			log.warn("[실주문 응답 없음] SELL {} {}주 시장가, 접수 여부를 알 수 없습니다: {}", symbol, quantity, e.getMessage());
+			return new OrderPlacementResult(OrderPlacementResult.Status.UNKNOWN, null, clientOrderId, e.getMessage());
 		}
 	}
 }

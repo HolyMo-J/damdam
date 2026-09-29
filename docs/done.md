@@ -235,6 +235,11 @@
 - 테스트 12개 추가 (전체 240개 통과): 러너를 목으로 끝까지 돌려 결과 파일 내용과 구간별 실패 격리와 이어 붙이기를 검증하고 (파일은 임시 폴더에 씀), 프로필에 따라 빈이 만들어지는지도 확인한다
 - 실행 중 발견한 문제: 러너에 생성자가 둘인데 공개 생성자에 `@Autowired`를 빠뜨렸다. Spring은 이 경우 기본 생성자를 찾다 실패하는데, 프로필이 켜져야만 만들어지는 빈이라 일반 테스트로는 안 잡히고 사용자가 처음 실행하는 순간에야 터졌을 것이다. 프로필을 켠 컨텍스트로 빈을 만들어 보는 테스트(`PaperProbeRunnerWiringTest`)를 추가하고, `@Autowired`를 일부러 빼서 그 테스트가 실패하는 것을 확인했다
 
+### API 타임아웃과 주문 응답 불명 처리 (2026-09-30, 코드와 테스트)
+- `tossRestClient`에 연결 5초와 읽기 30초 타임아웃을 넣었다 (`HttpClientConfig`, 값은 실측이 아닌 가정). 이전에는 응답이 멈추면 호출 하나가 무한정 기다릴 수 있었다(2026-09-29 독립 검토 지적). Boot의 `spring.http.clients.*`는 자동 구성된 클라이언트에만 적용한다고 공식 문서에 되어 있어, `RestClient.builder()`를 직접 부르는 이 코드에는 `JdkClientHttpRequestFactory`에 직접 지정했다. 런타임 클래스패스에 Apache, Jetty, OkHttp가 없어 기존 기본 클라이언트도 JDK `HttpClient`였음을 확인했다
+- 이 클라이언트를 주문과 조건주문도 함께 써서, 시장가 매도가 타임아웃이 나면 서버에 접수됐는지 봇이 모르는 상태가 새로 생긴다. `OrderPlacementService`는 `ResourceAccessException`을 `UNKNOWN`(접수 여부 불명)으로 돌려주고(거부인 `FAILED`와 구분), `HoldingTimeExitService`는 이를 즉시 디스코드로 알리고 하루 횟수에 센다. 이 예외는 그동안 잡히지 않고 `checkAndAlert` 전체를 중단시켰을 것이라, 종목 단위로 막아 한 종목의 조회 오류가 나머지 보유 종목의 시간 청산 판정을 건너뛰게 하지 않도록 했다(알림 키 `time-exit-error-{종목}`)
+- 테스트: 로컬 가짜 서버(127.0.0.1)가 응답을 안 줄 때 읽기 타임아웃에서 끊기고 예외가 `ResourceAccessException`(원인 `HttpTimeoutException`)인 것을 고정(`HttpClientConfigTest`), 주문 POST 타임아웃이 `UNKNOWN`이 되는 것(`OrderPlacementServiceTest`), `UNKNOWN` 알림과 횟수 계산과 종목 단위 예외 격리(`HoldingTimeExitServiceTest`). `catch`를 일부러 망가뜨리면 새 테스트가 실패하는 것을 확인했다. 전체 271개 통과. 남은 확인 못 함 항목은 docs/todo.md 확인 필요에 기록
+
 ## 프로젝트 방향 정리
 
 ### 외부 리뷰 E묶음 7~9번: 3단계 통과 기준 정리 (2026-09-30, docs/review-tasks.md)

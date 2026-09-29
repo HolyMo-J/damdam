@@ -8,6 +8,8 @@ public record OrderPlacementResult(Status status, String orderId, String clientO
 		// 실제로 전송해서 접수됨
 		PLACED,
 		// 전송을 시도했으나 거부되거나 실패함
-		FAILED
+		FAILED,
+		// 전송했지만 응답을 받지 못해(타임아웃, 연결 끊김) 접수됐는지 알 수 없음. 실패로 단정하면 이미 접수된 주문을 놓친다
+		UNKNOWN
 	}
 }

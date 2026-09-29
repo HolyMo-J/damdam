@@ -179,6 +179,44 @@ class HoldingTimeExitServiceTest {
 		assertTrue(alerts.contains("time-exit-failed-" + SYMBOL));
 	}
 
+	// 응답을 못 받아 접수 여부를 모르면 실패로 단정하지 않는다. 즉시 알리고, 주문이 나갔을 수 있으니 하루 횟수에는 센다
+	@Test
+	void autoSellUnknownNotifiesAndCountsDailyAttempt(@TempDir Path tempDir) {
+		autoSellGuard = new AutoSellGuard(1, 10, tempDir.resolve("guard.json").toString(),
+			java.time.Clock.systemDefaultZone(), fakeNotifier);
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"))));
+		when(orderService.getClosedOrders(anyLong(), anyString(), anyInt())).thenReturn(List.of(buyOrder(OLD_ENTRY)));
+		when(orderPlacementService.placeMarketSell(anyLong(), anyString(), anyString(), anyString()))
+			.thenReturn(new OrderPlacementResult(OrderPlacementResult.Status.UNKNOWN, null, "cid", "I/O error"));
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-unknown-" + SYMBOL));
+		assertFalse(alerts.contains("time-exit-failed-" + SYMBOL));
+		assertFalse(alerts.contains("time-exit-placed-" + SYMBOL));
+		assertFalse(autoSellGuard.canPlaceAutoSell(SYMBOL));
+	}
+
+	// 한 종목 조회에서 타임아웃 같은 예외가 나도 알리고 넘어가서, 나머지 보유 종목의 시간 청산 판정이 건너뛰어지지 않아야 한다
+	@Test
+	void exceptionOnOneHoldingDoesNotSkipTheRest() {
+		HoldingItem other = new HoldingItem("BBB", "테스트2", "KR", "KRW", "10", "100", "90", null, null, null, null);
+		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
+			List.of(holding("KRW"), other)));
+		when(orderService.getClosedOrders(anyLong(), eq(SYMBOL), anyInt()))
+			.thenThrow(new org.springframework.web.client.ResourceAccessException("read timed out"));
+		when(orderService.getClosedOrders(anyLong(), eq("BBB"), anyInt())).thenReturn(List.of());
+		HoldingTimeExitService service = newService();
+
+		service.checkAndAlert();
+
+		assertTrue(alerts.contains("time-exit-error-" + SYMBOL));
+		verify(orderService).getClosedOrders(anyLong(), eq("BBB"), anyInt());
+		assertTrue(alerts.contains("time-exit-noentry-BBB"));
+	}
+
 	@Test
 	void autoSellPlacedNotifies() {
 		when(holdingsService.getHoldings(ACCOUNT)).thenReturn(new HoldingsOverview(null, null, null, null,
