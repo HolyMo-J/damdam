@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.function.LongConsumer;
 
@@ -36,16 +37,23 @@ public class InvestorTradingService {
 	// 최신순 기록 count건. 429는 Retry-After 뒤 1회 재시도하고, 실패하면 StockLookupException.
 	// 기록이 없으면 빈 목록이다. 본문이 비었거나 기록의 날짜와 기관 순매수가 빠진 경우는 빈 목록이 아니라 실패로 다룬다
 	public List<InvestorTradingRecord> getRecentRecords(String symbol, int count) {
+		return getRecordsPage(symbol, count, null).records();
+	}
+
+	// until(포함) 날짜까지의 기록을 최신순으로 count건 돌려주고 다음 페이지 기준일(nextUntil)을 함께 담는다. until이 null이면 가장 최신부터다.
+	// 과거로 계속 넘어가며 보관 기간을 재는 조회 러너용이다. 실패 처리는 getRecentRecords와 같다
+	public InvestorTradingPage getRecordsPage(String symbol, int count, LocalDate until) {
 		if (count < 1 || count > MAX_COUNT) {
 			throw new IllegalArgumentException("count는 1 이상 %d 이하여야 합니다: %d".formatted(MAX_COUNT, count));
 		}
-		return RateLimitRetry.call(symbol + " 매매동향 조회", () -> fetch(symbol, count), sleeper,
+		return RateLimitRetry.call(symbol + " 매매동향 조회", () -> fetch(symbol, count, until), sleeper,
 			(message, cause) -> new StockLookupException(symbol, "매매동향 조회", message, cause));
 	}
 
-	private List<InvestorTradingRecord> fetch(String symbol, int count) {
-		InvestorTradingResponse response = restClient.get()
-			.uri("/api/v1/stocks/{symbol}/investor-trading?count={count}", symbol, count)
+	private InvestorTradingPage fetch(String symbol, int count, LocalDate until) {
+		InvestorTradingResponse response = (until == null
+			? restClient.get().uri("/api/v1/stocks/{symbol}/investor-trading?count={count}", symbol, count)
+			: restClient.get().uri("/api/v1/stocks/{symbol}/investor-trading?count={count}&until={until}", symbol, count, until))
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenService.getAccessToken())
 			.retrieve()
 			.body(InvestorTradingResponse.class);
@@ -54,7 +62,8 @@ public class InvestorTradingService {
 		if (response == null || response.result() == null || response.result().records() == null) {
 			throw new StockLookupException(symbol, "매매동향 조회", "응답 본문이 비어 있습니다");
 		}
-		return response.result().records().stream().map(row -> toRecord(symbol, row)).toList();
+		List<InvestorTradingRecord> records = response.result().records().stream().map(row -> toRecord(symbol, row)).toList();
+		return new InvestorTradingPage(records, response.result().nextUntil());
 	}
 
 	private static InvestorTradingRecord toRecord(String symbol, InvestorTradingResponse.Row row) {

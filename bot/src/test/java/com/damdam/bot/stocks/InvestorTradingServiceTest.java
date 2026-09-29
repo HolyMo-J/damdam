@@ -137,6 +137,31 @@ class InvestorTradingServiceTest {
 	}
 
 	@Test
+	void pageCallPassesUntilAndReturnsNextUntil() {
+		server.expect(requestTo("http://test/api/v1/stocks/005930/investor-trading?count=100&until=2026-07-16"))
+			.andRespond(withSuccess("""
+				{"result":{"nextUntil":"2026-03-05","records":[
+				  {"date":"2026-07-16","institution":{"netBuyVolume":"12"}}]}}""", MediaType.APPLICATION_JSON));
+
+		InvestorTradingPage page = service.getRecordsPage("005930", 100, LocalDate.parse("2026-07-16"));
+
+		assertEquals(LocalDate.parse("2026-03-05"), page.nextUntil());
+		assertEquals(List.of(new InvestorTradingRecord(LocalDate.parse("2026-07-16"), new BigDecimal("12"), null)), page.records());
+		server.verify();
+	}
+
+	@Test
+	void pageCallWithoutUntilUsesTheSameUrlAsTheRecentLookupAndNullNextUntilMeansNoMore() {
+		respondWith("{\"result\":{\"records\":[{\"date\":\"2026-09-28\",\"institution\":{\"netBuyVolume\":\"1\"}}],\"nextUntil\":null}}");
+
+		InvestorTradingPage page = service.getRecordsPage("005930", 10, null);
+
+		assertEquals(null, page.nextUntil());
+		assertEquals(1, page.records().size());
+		server.verify();
+	}
+
+	@Test
 	void countOutsideSpecRangeIsRejectedBeforeAnyRequest() {
 		assertThrows(IllegalArgumentException.class, () -> service.getRecentRecords("005930", 0));
 		assertThrows(IllegalArgumentException.class, () -> service.getRecentRecords("005930", 101));
