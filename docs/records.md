@@ -8,15 +8,17 @@
 
 ## 기록 파일
 1. 신호 기록: 조건에 걸린 모든 종목과 이후 며칠 가격. 전략 자체의 성질 확인용 (저녁 일괄 원장은 대기 신호만 `signals` CSV에 남긴다. 판정 상태와 근거 값까지 담는 `SignalScan` 전체 행의 기록은 아직 없고 구현 (3)에서 정한다)
-2. 가상 계좌 기록: 가상 잔고와 보유 종목 수 제한 안에서 실제로 샀을 거래만. 실전 성과 예상용
+2. 가상 계좌 기록: 전략별 총 노출 한도(가상 50만원) 안에서 실제로 샀을 거래만 (동시 보유 종목 수 한도는 없음). 실전 성과 예상용
    - 3단계 가상매매(docs/strategy.md 참고)는 전략 A, B를 동시에 검증하므로 신호 기록과 가상 계좌 기록 모두 전략별로 파일을 분리한다. 실전(직접 매매) 기록과도 분리한다 (같은 파일에 strategy_name 컬럼으로만 구분하지 않는다). 저녁 일괄 방식의 실제 파일 목록과 열은 아래 하위 항목
    - 저녁 일괄 가상매매(`PaperLedger`)의 실제 파일 (2026-09-30, 제안 폴더 `records/paper/`(git 제외), 실제 경로는 (3)이 원장에 넘기며 확정한다. 슬리피지나 전략 버전을 바꿔 돌리는 민감도 실험은 다른 폴더를 써야 한다): 전략별 `trades_{전략}.csv`(청산 완료 거래), `skips_{전략}.csv`(진입 못 한 신호와 사유, 봉이 안 와 포기한 신호는 `NO_BAR`), `signals_{전략}.csv`(대기 신호의 순위, 신호일 ATR, 신호일 종가. 슬리피지만 바꿔 다시 돌릴 입력), `abandoned_{전략}.csv`(봉이 끝내 오지 않아 포기한 보유 포지션. 거래가 아니라 청산되지 않은 포지션이고 통계에는 마지막 종가로 청산한 것으로 포함한다, docs/strategy.md "판단 기준"), 전략 공용 `bars.csv`(정산에 쓴 일봉 OHLCV)와 `runs.csv`(실행 이력). 상태 JSON(제안 경로 `bot/data/paper/state_{전략}.json`)은 기록이 아니라 봇의 작동 데이터이고, 같은 폴더에 직전 확정 상태 사본 `.bak`과 슬리피지와 전략 버전을 기록한 `ledger_config.json`이 생긴다
    - 열 (앞쪽 열이 중복 판정 키): `trades` = strategy, symbol, signal_date(키 여기까지), entry_date, exit_date, rank, quantity, entry_price, exit_price, exit_reason(TAKE_PROFIT, STOP_LOSS, TIME_EXIT), net_profit, net_return, gap_exit, exit_on_entry_day, entry_clamped_to_high, sell_failed, entry_gap_rate, execution_mode, entry_price_source, slippage_rate, strategy_version. `skips` = strategy, symbol, signal_date(키), reason(ZERO_VOLUME, INVALID_EXIT_PRICES, PRICE_EXCEEDS_LIMIT, EXPOSURE_LIMIT, WEEKLY_HALT, ALREADY_HELD, NO_BAR), rank, settle_date, atr, signal_close, execution_mode, slippage_rate, strategy_version. `signals` = strategy, symbol, signal_date(키), rank, atr, signal_close. `abandoned` = strategy, symbol, signal_date(키), entry_date, abandoned_on, rank, quantity, entry_price, take_profit_price, stop_trigger, atr, bars_processed, last_bar_date, execution_mode, slippage_rate, strategy_version. `bars` = date, symbol(키), open, high, low, close, volume. `runs` = run_at, strategy, settle_date(키), status(SETTLED, INCOMPLETE, 그 밖에 호출자가 `recordRun`으로 남기는 값, 예: SIGNAL_GAP), new_trades, skipped_signals, positions_after, unsettled_symbols, abandoned_symbols, note
    - 규칙: 같은 키에 같은 행이면 무시하고 다른 내용이면 예외다 (잠정치가 확정치로 바뀌었거나 설정을 바꿔 재실행한 경우 조용히 넘기지 않는다). `runs.csv`만은 실행 시각이 키라서 재실행하면 줄이 늘어나므로 분석은 정산일별 마지막 `SETTLED` 행을 쓴다. 한 신호가 `trades`와 `skips`에 동시에 있으면 안 되므로(크래시와 결측 복귀가 겹칠 때만 가능) 분석에서 두 파일의 (전략, 종목, 신호일) 교집합이 비었는지 점검한다
    - 사람이 열 때 유의: 엑셀로 열어 저장하면 종목코드 앞자리 0이 사라지고(`005930`이 `5930`) 한국어 Windows의 "CSV(쉼표로 분리)" 저장은 CP949라서 다음 기록이 실패한다. 엑셀로 열지 말고 읽기 전용 복사본으로 열어 본다. 실패는 안전한 방향이다 (헤더 검증으로 조용한 손상은 막는다)
-3. 직접 매매 기록: 사용자가 손으로 한 거래. 같은 형식의 별도 파일 (`records/manual_trades.csv`, `TradeRecordWriter`). strategy_name, exit_reason 컬럼이 있지만 4단계 소액 실전 전까지는 계속 수동 매매만 담긴다 (2026-09-28, review-tasks.md 8번)
+3. 직접 매매 기록: 사용자가 손으로 한 거래. 같은 형식의 별도 파일 (`records/manual_trades.csv`, `TradeRecordWriter`). strategy_name, exit_reason 컬럼이 있지만 4단계 소액 실전 전까지는 계속 수동 매매만 담긴다 (2026-09-28 D묶음 항목, 그 파일은 삭제됨. 지금의 review-tasks.md 8번과 다른 항목이다)
 4. 실행 상태 기록: 봇이 주기적으로 남기는 동작 로그. 기록 공백과 신호 없음을 구분 (저녁 일괄 가상매매는 위 `runs.csv`)
 5. 실측 조사 로그: 3단계 조회 러너(`paper-probe` 프로필)가 남기는 텍스트 로그 (`records/probe/paper-probe.log`, git 제외). 순위 집계 시각, 일봉과 기관 매매동향의 값과 갱신 시각을 회차마다 이어 붙이고 회차 간 변화를 기록한다. 매매 기록이 아니라 명세로 알 수 없는 사실(확정 시각 등)을 실측하는 용도다
+6. 신호 조회 로그: 신호 조회 러너(`signal-scan` 프로필)가 남기는 텍스트 로그 (`records/probe/signal-scan.log`, git 제외). 신호일마다 신호가 난 종목과 근거 값, 판정 불가 건수를 이어 붙인다. 가상 체결 기록이 아니다
+7. 수동 신호 관찰 기록: `records/observations.csv` (git 제외). 구현 (3)이 생기기 전에 신호 조회 결과를 한 줄에 신호 1건으로 옮기고 다음 날 시가를 채워 넣는 임시 기록이다. 구현 (3)이 만드는 `signals` CSV로 대체될 예정이다
 
 ## 기록 항목
 - 시각, 종목, 매수 매도 구분, 수량, 전략 버전
