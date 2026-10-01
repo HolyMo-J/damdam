@@ -96,7 +96,7 @@ def strategy_curve(trades, universe, calendar, n_slots=MAX_POSITIONS):
 
 
 def evaluate_gate(strat_cagr, strat_mdd, strat_calmar, bench_cagr, bench_mdd, bench_calmar, n, mean_net):
-    """docs/strategy.md "최종 구간 사전 등록 규칙"과 "판단 기준"의 30종목 동일가중 비교를 판정한다."""
+    """docs/strategy.md "최종 구간 진입 조건"과 "백테스트 통과 기준"의 30종목 동일가중 비교를 판정한다."""
     if strat_cagr >= bench_cagr:
         comparison_passed = True
         comparison_reason = "비용 반영 연환산 수익률이 30종목 동일가중 이상"

@@ -7,7 +7,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.Collection;
 
 // 주간 손실 한도: 전략별 가상 자금(50만원)의 10%를 그 주(월~금) 실현 순손실이 넘으면 그 주는 새 가상 매수를 멈춘다 (청산은 계속).
-// 실전 자금 단계별 기준과 별개인 고정값이다 (docs/strategy.md "공통 규칙", 2026-09-28)
+// 실전 자금 구간별 기준과 별개인 고정값이다 (docs/strategy.md "공통 규칙", 2026-09-28)
 public final class WeeklyLossLimit {
 
 	public static final BigDecimal VIRTUAL_CAPITAL = new BigDecimal("500000");
