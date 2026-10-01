@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Optional;
 
-// 전략별 총 노출 한도 (보유 중인 포지션의 매수 금액 합계 기준). 동시 보유 종목 수에는 한도를 두지 않는다 (2026-09-29 사용자 결정)
+// 전략별 총 노출 한도 (보유 중인 포지션과 포기한 포지션의 매수 금액 합계 기준. 포기한 포지션은 사람이 상태 파일을 고치기 전까지 영구히 포함한다). 동시 보유 종목 수에는 한도를 두지 않는다 (2026-09-29 사용자 결정)
 public final class ExposureLimit {
 
 	public static final BigDecimal TOTAL_LIMIT = new BigDecimal("500000");

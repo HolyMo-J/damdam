@@ -31,7 +31,12 @@ class PaperDaySettlementTest {
 
 	private static PaperDaySettlement.Result settle(List<PaperPosition> positions, List<PaperTrade> closed,
 			List<PendingSignal> pending, Map<String, Candle> bars) {
-		return PaperDaySettlement.settle(STRATEGY, DAY, positions, closed, pending, bars, BigDecimal.ZERO);
+		return settleWithAbandoned(positions, List.of(), closed, pending, bars);
+	}
+
+	private static PaperDaySettlement.Result settleWithAbandoned(List<PaperPosition> positions,
+			List<PaperPosition> abandoned, List<PaperTrade> closed, List<PendingSignal> pending, Map<String, Candle> bars) {
+		return PaperDaySettlement.settle(STRATEGY, DAY, positions, abandoned, closed, pending, bars, BigDecimal.ZERO);
 	}
 
 	private static PaperTrade loss(LocalDate exitDate, String netProfit) {
@@ -97,6 +102,68 @@ class PaperDaySettlementTest {
 		assertEquals(PaperTrade.ExitReason.TAKE_PROFIT, r.newTrades().get(0).exitReason());
 		assertEquals(SkipReason.EXPOSURE_LIMIT, r.skipped().get(0).reason());
 		assertTrue(r.positions().isEmpty());
+	}
+
+	@Test
+	void anAbandonedPositionStillCountsTowardsTheTotalExposure() {
+		// 포기한 X(40만원)는 청산 여부를 모르므로 노출에 계속 남는다. Y(20만원)는 40 + 20 = 60만원이라 건너뛴다
+		PaperPosition abandonedX = position("X", "400000", "1000");
+		PaperDaySettlement.Result r = settleWithAbandoned(List.of(), List.of(abandonedX), List.of(),
+			List.of(signal("Y", 1, "1000", "200000")), Map.of("Y", quiet200k()));
+
+		assertEquals(SkipReason.EXPOSURE_LIMIT, r.skipped().get(0).reason());
+		assertTrue(r.positions().isEmpty());
+		// 포기한 포지션은 정산 대상이 아니므로 봉이 없어도 미확정으로 막지 않는다
+		assertTrue(r.complete());
+	}
+
+	@Test
+	void anAbandonedPositionAddsToTheHeldExposureAndTheRemainingRoomStillAllowsAnEntry() {
+		// 보유 20만원 + 포기 20만원 = 40만원, 남은 10만원 안의 Z(10만원)는 들어가고 Y(20만원)는 건너뛴다
+		PaperPosition held = position("H", "200000", "1000");
+		PaperPosition abandoned = position("X", "200000", "1000");
+		PaperDaySettlement.Result r = settleWithAbandoned(List.of(held), List.of(abandoned), List.of(),
+			List.of(signal("Y", 1, "1000", "200000"), signal("Z", 2, "500", "100000")),
+			Map.of("H", quiet200k(), "Y", quiet200k(), "Z", bar(DAY, "100000", "100200", "99800", "100000")));
+
+		assertEquals(List.of("H", "Z"), symbols(r.positions()));
+		assertEquals("Y", r.skipped().get(0).signal().symbol());
+		assertEquals(SkipReason.EXPOSURE_LIMIT, r.skipped().get(0).reason());
+	}
+
+	@Test
+	void aSignalOnAnAbandonedSymbolIsSkippedAsAlreadyHeldInsteadOfEnteringASecondPosition() {
+		PaperPosition abandonedX = position("X", "200000", "1000");
+		PaperDaySettlement.Result r = settleWithAbandoned(List.of(), List.of(abandonedX), List.of(),
+			List.of(signal("X", 1, "1000", "200000")), Map.of("X", quiet200k()));
+
+		assertTrue(r.positions().isEmpty());
+		assertEquals(SkipReason.ALREADY_HELD, r.skipped().get(0).reason());
+		assertEquals("X", r.skipped().get(0).signal().symbol());
+	}
+
+	@Test
+	void anAbandonedPositionIsNotReturnedAsHeldNorTradedByTheSettlement() {
+		PaperPosition abandonedX = position("X", "200000", "1000");
+		PaperDaySettlement.Result r = settleWithAbandoned(List.of(), List.of(abandonedX), List.of(), List.of(),
+			Map.of("X", bar(DAY, "200000", "210000", "190000", "200000")));
+
+		// 그날 봉이 있어도 포기한 포지션은 청산 판정을 받지 않는다 (익절가 201000을 넘었어도 거래가 안 생긴다)
+		assertTrue(r.positions().isEmpty());
+		assertTrue(r.newTrades().isEmpty());
+	}
+
+	@Test
+	void rejectsAnAbandonedPositionThatIsAlsoHeldOrFromAnotherStrategy() {
+		PaperPosition x = position("X", "200000", "1000");
+		assertThrows(IllegalArgumentException.class,
+			() -> settleWithAbandoned(List.of(x), List.of(x), List.of(), List.of(), Map.of("X", quiet200k())));
+
+		PendingSignal otherSignal = new PendingSignal("Z", "Q", 1, PaperTestSupport.SIGNAL_DATE, bd("1000"), bd("200000"));
+		PaperPosition otherStrategy = ((PaperEntry.Entered) PaperEntry.enter(otherSignal, PaperTestSupport.ENTRY_DATE,
+			bar(PaperTestSupport.ENTRY_DATE, "200000", "200000", "200000", "200000"), BigDecimal.ZERO)).position();
+		assertThrows(IllegalArgumentException.class,
+			() -> settleWithAbandoned(List.of(), List.of(otherStrategy), List.of(), List.of(), Map.of()));
 	}
 
 	@Test
@@ -186,8 +253,10 @@ class PaperDaySettlementTest {
 		List<PendingSignal> pending = List.of(signal("A", 1, "1000", "200000"));
 		Map<String, Candle> bars = Map.of("A", quiet200k());
 
-		PaperDaySettlement.Result zero = PaperDaySettlement.settle(STRATEGY, DAY, List.of(), List.of(), pending, bars, BigDecimal.ZERO);
-		PaperDaySettlement.Result some = PaperDaySettlement.settle(STRATEGY, DAY, List.of(), List.of(), pending, bars, bd("0.002"));
+		PaperDaySettlement.Result zero = PaperDaySettlement.settle(STRATEGY, DAY, List.of(), List.of(), List.of(), pending, bars,
+			BigDecimal.ZERO);
+		PaperDaySettlement.Result some = PaperDaySettlement.settle(STRATEGY, DAY, List.of(), List.of(), List.of(), pending, bars,
+			bd("0.002"));
 
 		assertEquals(0, bd("200000").compareTo(zero.positions().get(0).entryPrice()));
 		// 200000 x 1.002 = 200400 (고가 200500 이하라 제한되지 않음)

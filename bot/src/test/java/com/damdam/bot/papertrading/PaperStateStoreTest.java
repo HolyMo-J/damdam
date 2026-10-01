@@ -61,6 +61,21 @@ class PaperStateStoreTest {
 	}
 
 	@Test
+	void aStateFileWithoutTheOptionalListsLoadsWithEmptyOnes() throws IOException {
+		// 필드가 없는 옛 저장 파일은 null이 아니라 빈 목록으로 읽혀야 한다 (포기 목록 추가 전에 쓴 파일 등)
+		Files.createDirectories(dir.resolve("paper"));
+		Files.writeString(dir.resolve("paper/state_B.json"), "{\"strategy\":\"B\",\"settledThroughDate\":\"2026-09-29\"}",
+			StandardCharsets.UTF_8);
+
+		PaperStrategyState loaded = store().load("B");
+
+		assertEquals(ENTRY_DATE, loaded.settledThroughDate());
+		assertEquals(List.of(), loaded.abandoned());
+		assertEquals(List.of(), loaded.positions());
+		assertEquals(Map.of(), loaded.unsettledAttempts());
+	}
+
+	@Test
 	void strategiesUseSeparateFiles() {
 		store().save(PaperStrategyState.initial("A").settled(SIGNAL_DATE, List.of(), List.of()));
 

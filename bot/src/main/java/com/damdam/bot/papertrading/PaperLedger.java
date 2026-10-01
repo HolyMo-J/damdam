@@ -115,8 +115,10 @@ public final class PaperLedger {
 
 			PaperDaySettlement.Result result;
 			while (true) {
-				result = PaperDaySettlement.settle(strategy, date, state.positions(), state.closedTrades(), state.pending(),
-					entry.getValue(), slippage);
+				List<PaperPosition> abandonedPositions = state.abandoned().stream()
+					.map(PaperStrategyState.Abandoned::position).toList();
+				result = PaperDaySettlement.settle(strategy, date, state.positions(), abandonedPositions,
+					state.closedTrades(), state.pending(), entry.getValue(), slippage);
 				if (result.complete()) {
 					break;
 				}

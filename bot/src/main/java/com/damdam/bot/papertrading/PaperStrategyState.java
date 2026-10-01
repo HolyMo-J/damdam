@@ -19,7 +19,8 @@ public record PaperStrategyState(
 	List<PendingSignal> pending,
 	// 청산 완료 거래 전부. 주간 손실 한도 판정에 쓰므로 CSV를 다시 읽지 않고 여기 둔다
 	List<PaperTrade> closedTrades,
-	// 봉이 끝내 오지 않아 포기한 포지션. 정산 대상에서 빠지고 판정 보고에 "청산되지 않은 포지션"으로 병기한다
+	// 봉이 끝내 오지 않아 포기한 포지션. 정산 대상에서 빠지고 판정 보고에 "청산되지 않은 포지션"으로 병기한다.
+	// 청산 여부를 알 수 없으므로 총 노출에는 영구히 넣는다 (빼는 코드가 없다, PaperDaySettlement)
 	List<Abandoned> abandoned,
 	// 봉을 못 받아 미확정으로 끝난 날짜 수(종목별, 연속). 정산이 확정되면 비운다
 	Map<String, Integer> unsettledAttempts,

@@ -293,6 +293,96 @@ class PaperLedgerTest {
 			csv("abandoned_B.csv"));
 	}
 
+	// 1만원짜리 포지션을 진입시킨 뒤 3일 연속 봉이 안 와서 DAY_3에 포기시킨다 (확정일은 DAY_3)
+	private PaperLedger.Report abandonTheHeldPositionOnDay3() {
+		settleSignalDayWithOneSignal();
+		ledger.settleDays("B", day(ENTRY_DATE, flat(ENTRY_DATE)));
+		ledger.settleDays("B", day(DAY_3, referenceOnly(DAY_3)));
+		clock.nextDay();
+		ledger.settleDays("B", day(DAY_3, referenceOnly(DAY_3)));
+		clock.nextDay();
+		PaperLedger.Report third = ledger.settleDays("B", day(DAY_3, referenceOnly(DAY_3)));
+		assertEquals(1, third.state().abandoned().size());
+		return third;
+	}
+
+	private PaperLedger.Report enterOneBigSignalOnDay4(String price) {
+		ledger.recordPending("B", DAY_3, List.of(
+			new PendingSignal("B", "000270", 1, DAY_3, new BigDecimal("1000"), new BigDecimal(price))));
+		Map<String, Candle> bars = Map.of(REFERENCE, bar(DAY_4, "20000", "20000", "20000", "20000"),
+			"000270", bar(DAY_4, price, price, price, price));
+		return ledger.settleDays("B", day(DAY_4, bars));
+	}
+
+	@Test
+	void anAbandonedPositionKeepsTakingUpExposureSoALaterEntryOverTheLimitIsSkipped() throws IOException {
+		abandonTheHeldPositionOnDay3();
+
+		// 포기한 1만원 + 새 49.5만원 = 50.5만원이 한도 50만원을 넘는다 (포기 노출을 빼면 49.5만원이라 들어가 버린다)
+		PaperLedger.Report next = enterOneBigSignalOnDay4("495000");
+
+		assertTrue(next.complete());
+		assertEquals(List.of(), next.state().positions());
+		assertTrue(csv("skips_B.csv").stream().anyMatch(l -> l.contains("000270") && l.contains("EXPOSURE_LIMIT")),
+			csv("skips_B.csv").toString());
+	}
+
+	@Test
+	void anEntryExactlyAtTheLimitIncludingTheAbandonedExposureStillEnters() {
+		abandonTheHeldPositionOnDay3();
+
+		// 포기한 1만원 + 새 49만원 = 50만원은 한도와 같아서 들어간다 (경계)
+		PaperLedger.Report next = enterOneBigSignalOnDay4("490000");
+
+		assertTrue(next.complete());
+		assertEquals(List.of("000270"), next.state().positions().stream().map(PaperPosition::symbol).toList());
+	}
+
+	@Test
+	void aNewSignalOnAnAbandonedSymbolIsSkippedAsAlreadyHeldAndTheLedgerKeepsWorking() throws IOException {
+		abandonTheHeldPositionOnDay3();
+		// 거래정지가 풀리거나 조회가 복구돼 포기했던 종목이 다시 신호를 낸다 (신호는 봉 유무와 무관하게 대상 종목군 전체에서 만든다)
+		ledger.recordPending("B", DAY_3, List.of(
+			new PendingSignal("B", SYMBOL, 1, DAY_3, new BigDecimal("100"), new BigDecimal("10000"))));
+		Map<String, Candle> bars = Map.of(REFERENCE, bar(DAY_4, "20000", "20000", "20000", "20000"),
+			SYMBOL, bar(DAY_4, "10000", "10000", "10000", "10000"));
+
+		PaperLedger.Report next = ledger.settleDays("B", day(DAY_4, bars));
+
+		assertTrue(next.complete());
+		assertEquals(List.of(), next.state().positions());
+		assertTrue(csv("skips_B.csv").stream().anyMatch(l -> l.contains(SYMBOL) && l.contains("ALREADY_HELD")),
+			csv("skips_B.csv").toString());
+		// 같은 종목이 보유와 포기에 동시에 있으면 이후 정산이 전부 예외로 멈춘다. 그 상태가 만들어지지 않았는지 다음 날 정산으로 확인한다
+		LocalDate day5 = DAY_4.plusDays(1);
+		PaperLedger.Report afterwards = ledger.settleDays("B", day(day5, Map.of(REFERENCE, bar(day5, "20000", "20000", "20000", "20000"))));
+		assertTrue(afterwards.complete());
+	}
+
+	@Test
+	void abandonmentConfirmedOnTheDayItselfCountsImmediatelyForThatDaysEntries() throws IOException {
+		settleSignalDayWithOneSignal();
+		ledger.settleDays("B", day(ENTRY_DATE, flat(ENTRY_DATE)));
+		// 보유 중인 1만원 종목의 봉이 3일 연속 안 오는 동안, 다른 종목의 49.5만원 신호가 기다린다
+		ledger.recordPending("B", ENTRY_DATE, List.of(
+			new PendingSignal("B", "000270", 1, ENTRY_DATE, new BigDecimal("1000"), new BigDecimal("495000"))));
+		Map<String, Candle> bars = Map.of(REFERENCE, bar(DAY_3, "20000", "20000", "20000", "20000"),
+			"000270", bar(DAY_3, "495000", "495000", "495000", "495000"));
+		assertFalse(ledger.settleDays("B", day(DAY_3, bars)).complete());
+		clock.nextDay();
+		assertFalse(ledger.settleDays("B", day(DAY_3, bars)).complete());
+		clock.nextDay();
+
+		// 세 번째 날에 포기가 확정되고, 같은 정산에서 그 포기 노출(1만원)이 바로 반영되어 49.5만원 진입은 한도 초과다
+		PaperLedger.Report third = ledger.settleDays("B", day(DAY_3, bars));
+
+		assertTrue(third.complete());
+		assertEquals(List.of(SYMBOL), third.abandonedSymbols());
+		assertEquals(List.of(), third.state().positions());
+		assertTrue(csv("skips_B.csv").stream().anyMatch(l -> l.contains("000270") && l.contains("EXPOSURE_LIMIT")),
+			csv("skips_B.csv").toString());
+	}
+
 	@Test
 	void aWholeDayWithoutAnyBarIsASystemMissAndNeverCountsOrAbandons() throws IOException {
 		settleSignalDayWithOneSignal();
