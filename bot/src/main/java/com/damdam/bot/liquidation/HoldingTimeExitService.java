@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,8 @@ public class HoldingTimeExitService {
 	private static final Logger log = LoggerFactory.getLogger(HoldingTimeExitService.class);
 	private static final long MAX_HOLD_TRADING_DAYS = 5;
 	private static final int ORDER_HISTORY_LOOKBACK_DAYS = 30;
+	// 서버 기본 시간대(UTC일 수 있음)와 무관하게 한국 날짜로 보유 거래일과 주문 ID를 계산한다
+	private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
 	private final AccountService accountService;
 	private final HoldingsService holdingsService;
@@ -98,7 +101,7 @@ public class HoldingTimeExitService {
 		}
 
 		boolean domestic = "KRW".equals(item.currency());
-		long heldTradingDays = tradingDayCalculator.tradingDaysBetween(entryTime.toLocalDate(), LocalDate.now(), domestic);
+		long heldTradingDays = tradingDayCalculator.tradingDaysBetween(entryTime.toLocalDate(), LocalDate.now(KST), domestic);
 		if (heldTradingDays < MAX_HOLD_TRADING_DAYS) {
 			return;
 		}
@@ -150,7 +153,7 @@ public class HoldingTimeExitService {
 			return;
 		}
 
-		String clientOrderId = "time-exit-" + item.symbol() + "-" + LocalDate.now();
+		String clientOrderId = "time-exit-" + item.symbol() + "-" + LocalDate.now(KST);
 		OrderPlacementResult result = orderPlacementService.placeMarketSell(accountSeq, clientOrderId, item.symbol(), item.quantity());
 
 		if (result.status() == OrderPlacementResult.Status.FAILED) {

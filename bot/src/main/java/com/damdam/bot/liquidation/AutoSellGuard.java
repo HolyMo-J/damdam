@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 // 자동 매도의 하루 횟수 한도와 연속 손실 정지를 관리한다 (버그 폭주 방지, 나쁜 전략 조기 정지).
 // 실패 시 닫히는(fail-closed) 방식이다: 상태 파일이 있는데 못 읽거나, 상태를 파일에 저장하지 못하면 주문을 막는다.
@@ -40,7 +41,7 @@ class AutoSellGuard {
 			@Value("${damdam.orders.max-consecutive-losses}") int maxConsecutiveLosses,
 			@Value("${damdam.orders.guard-state-path}") String stateFilePath,
 			Notifier notifier) {
-		this(maxDailyCount, maxConsecutiveLosses, stateFilePath, Clock.systemDefaultZone(), notifier);
+		this(maxDailyCount, maxConsecutiveLosses, stateFilePath, Clock.system(ZoneId.of("Asia/Seoul")), notifier);
 	}
 
 	AutoSellGuard(int maxDailyCount, int maxConsecutiveLosses, String stateFilePath, Clock clock, Notifier notifier) {

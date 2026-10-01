@@ -8,6 +8,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -47,7 +48,7 @@ public class OrderService {
 	public List<Order> getClosedOrders(long accountSeq, String symbol, int lookbackDays) {
 		List<Order> orders = new ArrayList<>();
 		String cursor = null;
-		String from = LocalDate.now().minusDays(lookbackDays).toString();
+		String from = LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(lookbackDays).toString();
 
 		while (true) {
 			String uri = UriComponentsBuilder.fromPath("/api/v1/orders")

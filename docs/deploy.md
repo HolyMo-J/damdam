@@ -15,6 +15,12 @@ sudo apt update && sudo apt install -y openjdk-21-jdk git
 java -version   # 21인지 확인
 which java      # systemd 서비스 파일에 쓸 절대 경로 (예: /usr/bin/java)
 
+# 서버 시간대를 한국으로 맞춘다 (클라우드 이미지는 보통 UTC. 오라클 공식 문서에서는 기본값을 확인 못 함)
+timedatectl                              # 먼저 Time zone 항목으로 현재 값 확인
+sudo timedatectl set-timezone Asia/Seoul
+timedatectl                              # Time zone: Asia/Seoul (KST, +0900)으로 바뀌었는지 확인
+# 서비스가 이미 떠 있었다면 JVM이 시간대를 시작 시점에 읽으므로 재시작해야 반영된다
+
 # 봇 전용 사용자 생성 (root로 돌리지 않는다)
 sudo useradd -m -s /bin/bash damdam
 sudo su - damdam

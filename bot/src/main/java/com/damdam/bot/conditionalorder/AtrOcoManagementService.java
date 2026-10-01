@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -173,7 +174,7 @@ public class AtrOcoManagementService {
 
 		BigDecimal atr14 = atrService.getAtr14(symbol);
 		AtrOcoPricing.Prices prices = AtrOcoPricing.calculate(new BigDecimal(item.averagePurchasePrice()), atr14, isKrw);
-		String expireDate = LocalDate.now().plusDays(EXPIRE_DAYS).toString();
+		String expireDate = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(EXPIRE_DAYS).toString();
 
 		Optional<ConditionalOrderDetail> existing = conditionalOrderService.findOpenConditionalOrder(accountSeq, symbol);
 		ConditionalOrderPlacementResult result;
