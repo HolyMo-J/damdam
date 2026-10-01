@@ -16,7 +16,9 @@ Type=simple
 User=<damdam-linux-user>
 WorkingDirectory=<install-path>/bot
 # `which java`로 확인한 실제 경로를 쓴다. systemd는 로그인 셸의 PATH를 상속하지 않는다
-ExecStart=<java-path> -jar build/libs/bot-0.0.1-SNAPSHOT.jar --spring.profiles.active=listen
+# -Xmx256m: 1GB 메모리 서버에서 힙이 OS를 압박하지 않게 상한을 명시한다 (256MB가 충분한지는 실측 전, docs/deploy.md "메모리" 참고)
+# -XX:+ExitOnOutOfMemoryError: 메모리가 부족하면 멈춘 채 버티지 않고 종료해서 아래 Restart=on-failure로 다시 뜨게 한다
+ExecStart=<java-path> -Xmx256m -XX:+ExitOnOutOfMemoryError -jar build/libs/bot-0.0.1-SNAPSHOT.jar --spring.profiles.active=listen
 
 # 비정상 종료 시에만 재시작한다. 정상 종료(systemctl stop)는 재시작하지 않는다
 Restart=on-failure

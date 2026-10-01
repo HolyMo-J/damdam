@@ -1,0 +1,62 @@
+name: release-jar
+
+# 서버(1GB 메모리)에서 직접 빌드하지 않도록 여기서 jar를 만들어 GitHub Release에 올린다. 서버는 이 jar를 받아 쓴다 (docs/deploy.md 참고).
+# 실주문 봇이 push마다 바뀌지 않도록 수동 실행(workflow_dispatch)에서만 돌고, 서버로 직접 배포하지는 않는다.
+# 서버 SSH 키나 토스 키 같은 시크릿은 쓰지 않는다. jar에는 비밀값이 없고(환경변수 자리표시자만 있음) 저장소도 공개다
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '릴리스 태그 (예: v0.1.0, 이미 있는 태그는 쓸 수 없음)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      # 입력값은 스크립트에 직접 끼워 넣지 않고 환경변수로 받아 검사한다 (스크립트 주입 방지)
+      - name: 태그 형식 검사
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "태그는 v0.1.0 형식이어야 합니다: $TAG"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # 테스트가 하나라도 실패하면 jar를 올리지 않는다
+      - name: 테스트와 jar 빌드
+        run: ./gradlew test bootJar --no-daemon --console=plain
+
+      # 서버에서 같은 폴더에 받아 `sha256sum -c`로 검증할 수 있게 파일 이름만 적는다
+      - name: sha256 만들기
+        working-directory: bot/build/libs
+        run: sha256sum bot-0.0.1-SNAPSHOT.jar > bot-0.0.1-SNAPSHOT.jar.sha256
+
+      - name: 릴리스 만들기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            build/libs/bot-0.0.1-SNAPSHOT.jar \
+            build/libs/bot-0.0.1-SNAPSHOT.jar.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes "커밋 $GITHUB_SHA 에서 빌드한 jar. 서버에서 받는 절차는 docs/deploy.md 참고"

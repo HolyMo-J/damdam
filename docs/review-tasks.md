@@ -32,7 +32,7 @@ E묶음
 1. [완료 2026-10-02, (가)+(나) 둘 다 적용] 서버 시간대. 오라클 우분투 이미지 기본 시간대가 UTC일 가능성이 있다는 지적이다 (미검증, 공식 문서로 확인). 코드에 시스템 기본 시간대로 오늘 날짜를 구하는 곳이 있다: AutoSellGuard의 Clock.systemDefaultZone, HoldingTimeExitService, OrderService, AtrOcoManagementService의 LocalDate.now. 서버가 UTC면 하루 자동 매도 횟수가 한국 시간 오전 9시에 초기화되는 식으로 어긋난다.
 - 두 방법을 비교해 권장안을 제안한다: (가) docs/deploy.md에 서버 시간대를 Asia/Seoul로 설정하는 단계 추가, (나) 코드에서 한국 시간대를 명시. 둘 다 할 수도 있다.
 
-2. 1GB 메모리. AMD 무료 인스턴스는 메모리가 1GB라서 서버에서 gradlew bootJar 빌드 중 메모리가 부족할 수 있다는 지적이다 (미검증).
+2. [완료 2026-10-02, 사용자 제안으로 Actions 빌드 + 릴리스 다운로드 방식 채택, 자동 SSH 배포는 채택 안 함] 1GB 메모리. AMD 무료 인스턴스는 메모리가 1GB라서 서버에서 gradlew bootJar 빌드 중 메모리가 부족할 수 있다는 지적이다 (미검증).
 - 집 PC에서 jar를 빌드해 서버로 올리는 방법과 스왑을 추가하는 방법을 비교해 docs/deploy.md에 반영하는 안을 제안한다.
 - 서비스 파일의 JVM 최대 메모리 설정도 제안한다.
 - ARM 인스턴스를 만들면 해당 없다는 점도 적는다.
