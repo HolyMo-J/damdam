@@ -30,10 +30,10 @@ final class PaperRecords {
 	static final List<String> BARS_HEADER = List.of("date", "symbol", "open", "high", "low", "close", "volume");
 	static final int BARS_KEY = 2;
 
-	// 키: 실행 시각, 전략, 정산일. 거래일 처리마다 한 줄이라 "신호 없음"과 "돌지 못한 공백"을 구분하는 근거가 된다
+	// 키: 실행 시각, 전략, 정산일, 상태. 상태가 키에 있어서 같은 실행의 정산 행(SETTLED)과 공백 행(SIGNAL_GAP)이 시계 해상도와 무관하게 겹치지 않는다. 거래일 처리마다 한 줄이라 "신호 없음"과 "돌지 못한 공백"을 구분하는 근거가 된다
 	static final List<String> RUNS_HEADER = List.of("run_at", "strategy", "settle_date", "status", "new_trades",
 		"skipped_signals", "positions_after", "unsettled_symbols", "abandoned_symbols", "note");
-	static final int RUNS_KEY = 3;
+	static final int RUNS_KEY = 4;
 
 	// 키: 전략, 종목, 신호일. 신호일 저녁에 만든 대기 신호. 청산되면 상태에서 사라지는 순위와 신호일 ATR과 종가를 남겨
 	// 슬리피지만 바꿔 같은 코드로 다시 돌릴 때의 입력이 된다

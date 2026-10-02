@@ -1,5 +1,6 @@
 package com.damdam.bot.papertrading;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -16,7 +17,10 @@ public record SignalScan(LocalDate signalDate, Instant scannedAt, List<Row> rows
 		StrategyOutcome<IchimokuCloudBreakout.Result> ichimoku,
 		StrategyOutcome<InstitutionNetBuySignal.Result> institution,
 		// 신호일 기관 매매동향 기록의 마지막 갱신 시각. 기록을 못 받았거나 없으면 null. 확정치인지 판별할 수 있는지는 확인하지 못했으므로 판정에는 쓰지 않고 관찰용으로만 담는다
-		Instant institutionRecordUpdatedAt
+		Instant institutionRecordUpdatedAt,
+		// 신호가 나면 다음 거래일 진입 대기 신호(PendingSignal)에 담을 값. 신호일까지 자른 같은 일봉에서 뽑는다.
+		// 조회 실패이거나 봉이 모자라거나 신호일 봉이 없으면 null이고, 그 종목은 신호가 나도 대기 신호를 만들 수 없다
+		EntryBasis entryBasis
 	) {
 		// 판정을 끝냈고 신호가 난 경우만 true. 조회 실패나 데이터 오류는 신호가 아니다
 		public boolean ichimokuSignaled() {
@@ -26,6 +30,10 @@ public record SignalScan(LocalDate signalDate, Instant scannedAt, List<Row> rows
 		public boolean institutionSignaled() {
 			return institution.status() == StrategyOutcome.Status.EVALUATED && institution.result().signaled();
 		}
+	}
+
+	// atr: 신호일 봉을 포함한 최근 14거래일 ATR (청산 규칙 v0과 같은 계산), signalClose: 신호일 종가
+	public record EntryBasis(BigDecimal atr, BigDecimal signalClose) {
 	}
 
 	// 호출부가 rows를 다시 세지 않아도 "신호 0건"과 "판정 불가"를 구분할 수 있게 전략별 상태 건수를 준다

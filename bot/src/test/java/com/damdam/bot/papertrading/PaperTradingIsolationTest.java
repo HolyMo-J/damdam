@@ -36,6 +36,11 @@ class PaperTradingIsolationTest {
 	// (market: 캔들, ranking: 순위 조회, stocks: 종목 정보 조회. 셋 다 조회 전용)
 	private static final Set<String> ALLOWED_PACKAGES = Set.of(PAPERTRADING, "market", "ranking", "stocks");
 
+	// 가상매매 러너 패키지. papertrading의 허용 목록에 알림(notification)이 더해진다 (디스코드 보고용)
+	private static final String PAPERTRADER = "papertrader";
+	private static final Set<String> ALLOWED_PAPERTRADER_PACKAGES =
+		Set.of(PAPERTRADER, PAPERTRADING, "market", "ranking", "stocks", "notification");
+
 	// papertrading은 HTTP 클라이언트를 직접 잡지 않고 조회 서비스만 쓴다. 쓰기 메서드 호출과 문자열 기반 빈/클래스 접근도 막는다
 	private static final List<String> FORBIDDEN_TOKENS = List.of(
 		"RestClient", "RestTemplate", "WebClient", "HttpClient", "HttpURLConnection",
@@ -46,31 +51,62 @@ class PaperTradingIsolationTest {
 
 	@Test
 	void papertradingImportsOnlyAllowedPackages() throws IOException {
-		List<Path> sources = javaFiles(MAIN_SOURCE.resolve(PAPERTRADING));
-		// 경로가 바뀌어 검사 대상이 0개가 되면 테스트가 조용히 통과하므로, 대상이 있다는 것부터 확인한다
-		assertFalse(sources.isEmpty(), "papertrading 소스를 찾지 못했습니다: " + MAIN_SOURCE.resolve(PAPERTRADING).toAbsolutePath());
-
-		for (Path source : sources) {
-			Set<String> unexpected = referencedPackages(Files.readString(source));
-			unexpected.removeAll(ALLOWED_PACKAGES);
-			assertEquals(Set.of(), unexpected, source.getFileName() + " 이(가) 허용 목록 밖의 패키지를 참조합니다");
-		}
+		assertImportsOnlyAllowedPackages(PAPERTRADING, ALLOWED_PACKAGES);
 	}
 
 	@Test
 	void papertradingSourcesUseNoHttpClientsWriteCallsOrStringBasedBeanAccess() throws IOException {
-		for (Path source : javaFiles(MAIN_SOURCE.resolve(PAPERTRADING))) {
+		assertNoForbiddenTokens(PAPERTRADING);
+	}
+
+	@Test
+	void packageDependenciesReachableFromPapertradingNeverTouchOrderPackages() throws IOException {
+		assertNoOrderPackageReachableFrom(PAPERTRADING);
+	}
+
+	// 가상매매 러너 패키지(papertrader)도 같은 가드를 받는다. 알림(notification)을 쓰는 것이 papertrading과 다른 점이다.
+	// 디스코드 전송은 HTTP 쓰기지만 주문과 무관한 알림 채널이고, 이 패키지는 Notifier 인터페이스만 쓰고 HTTP 클라이언트를 직접 잡지 않는다
+	@Test
+	void papertraderImportsOnlyAllowedPackages() throws IOException {
+		assertImportsOnlyAllowedPackages(PAPERTRADER, ALLOWED_PAPERTRADER_PACKAGES);
+	}
+
+	@Test
+	void papertraderSourcesUseNoHttpClientsWriteCallsOrStringBasedBeanAccess() throws IOException {
+		assertNoForbiddenTokens(PAPERTRADER);
+	}
+
+	@Test
+	void packageDependenciesReachableFromPapertraderNeverTouchOrderPackages() throws IOException {
+		assertNoOrderPackageReachableFrom(PAPERTRADER);
+	}
+
+	private static void assertImportsOnlyAllowedPackages(String root, Set<String> allowed) throws IOException {
+		List<Path> sources = javaFiles(MAIN_SOURCE.resolve(root));
+		// 경로가 바뀌어 검사 대상이 0개가 되면 테스트가 조용히 통과하므로, 대상이 있다는 것부터 확인한다
+		assertFalse(sources.isEmpty(), root + " 소스를 찾지 못했습니다: " + MAIN_SOURCE.resolve(root).toAbsolutePath());
+
+		for (Path source : sources) {
+			Set<String> unexpected = referencedPackages(Files.readString(source));
+			unexpected.removeAll(allowed);
+			assertEquals(Set.of(), unexpected, source.getFileName() + " 이(가) 허용 목록 밖의 패키지를 참조합니다");
+		}
+	}
+
+	private static void assertNoForbiddenTokens(String root) throws IOException {
+		List<Path> sources = javaFiles(MAIN_SOURCE.resolve(root));
+		assertFalse(sources.isEmpty(), root + " 소스를 찾지 못했습니다: " + MAIN_SOURCE.resolve(root).toAbsolutePath());
+		for (Path source : sources) {
 			assertEquals(List.of(), findForbiddenTokens(Files.readString(source)),
 				source.getFileName() + " 이(가) 금지된 호출을 포함합니다");
 		}
 	}
 
-	@Test
-	void packageDependenciesReachableFromPapertradingNeverTouchOrderPackages() throws IOException {
+	private static void assertNoOrderPackageReachableFrom(String root) throws IOException {
 		// 패키지 단위 전이 의존. 파일 단위가 아니라 패키지 단위라 거칠지만, 통과하면 허용 패키지가 뒤에서 주문 코드를 끌고 오지 않는다는 뜻이다
 		Map<String, Set<String>> graph = dependencyGraph();
 		Set<String> reachable = new TreeSet<>();
-		Deque<String> queue = new ArrayDeque<>(List.of(PAPERTRADING));
+		Deque<String> queue = new ArrayDeque<>(List.of(root));
 		Set<String> visited = new HashSet<>(queue);
 		while (!queue.isEmpty()) {
 			String pkg = queue.poll();
@@ -84,7 +120,7 @@ class PaperTradingIsolationTest {
 
 		Set<String> touched = new TreeSet<>(reachable);
 		touched.retainAll(FORBIDDEN_PACKAGES);
-		assertEquals(Set.of(), touched, "papertrading에서 닿는 패키지: " + reachable);
+		assertEquals(Set.of(), touched, root + "에서 닿는 패키지: " + reachable);
 	}
 
 	@Test

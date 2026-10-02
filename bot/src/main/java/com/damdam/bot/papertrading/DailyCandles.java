@@ -7,13 +7,13 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 // 신호 판정 함수들이 공통으로 쓰는 일봉 입력 검증
-final class DailyCandles {
+public final class DailyCandles {
 
 	private DailyCandles() {
 	}
 
 	// 일봉의 timestamp는 그 종목 시장의 현지 자정 고정이라(AtrService 참고), 오프셋을 그대로 둔 채 날짜만 꺼내면 현지 거래일이다
-	static LocalDate dateOf(Candle candle) {
+	public static LocalDate dateOf(Candle candle) {
 		return OffsetDateTime.parse(candle.timestamp()).toLocalDate();
 	}
 

@@ -41,28 +41,28 @@ class SignalScanRunnerTest {
 	@Test
 	void beforeTheConfirmationTimeTheDefaultSignalDateIsThePreviousTradingDay() {
 		// 금요일 01:51은 아직 어제(목) 저녁 값만 확정된 시각이다
-		assertEquals(LocalDate.of(2026, 10, 1), SignalScanRunner.defaultSignalDate(at("2026-10-02T01:51:00"), TRADING));
-		assertEquals(LocalDate.of(2026, 10, 1), SignalScanRunner.defaultSignalDate(at("2026-10-02T20:29:59"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 1), SignalDates.defaultSignalDate(at("2026-10-02T01:51:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 1), SignalDates.defaultSignalDate(at("2026-10-02T20:29:59"), TRADING));
 	}
 
 	@Test
 	void fromTheConfirmationTimeOnATradingDayTheDefaultSignalDateIsToday() {
-		assertEquals(LocalDate.of(2026, 10, 2), SignalScanRunner.defaultSignalDate(at("2026-10-02T20:30:00"), TRADING));
-		assertEquals(LocalDate.of(2026, 10, 2), SignalScanRunner.defaultSignalDate(at("2026-10-02T23:59:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 2), SignalDates.defaultSignalDate(at("2026-10-02T20:30:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 2), SignalDates.defaultSignalDate(at("2026-10-02T23:59:00"), TRADING));
 	}
 
 	@Test
 	void weekendsAndHolidaysFallBackToTheLastTradingDay() {
 		// 토요일, 일요일, 휴장인 월요일(10/5)은 저녁이어도 직전 영업일(금 10/2)이다
-		assertEquals(LocalDate.of(2026, 10, 2), SignalScanRunner.defaultSignalDate(at("2026-10-03T21:00:00"), TRADING));
-		assertEquals(LocalDate.of(2026, 10, 2), SignalScanRunner.defaultSignalDate(at("2026-10-05T21:00:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 2), SignalDates.defaultSignalDate(at("2026-10-03T21:00:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 2), SignalDates.defaultSignalDate(at("2026-10-05T21:00:00"), TRADING));
 		// 휴장 다음 영업일(화 10/6) 아침은 금 10/2다
-		assertEquals(LocalDate.of(2026, 10, 2), SignalScanRunner.defaultSignalDate(at("2026-10-06T09:00:00"), TRADING));
+		assertEquals(LocalDate.of(2026, 10, 2), SignalDates.defaultSignalDate(at("2026-10-06T09:00:00"), TRADING));
 	}
 
 	@Test
 	void failsWhenNoTradingDayIsFoundInTheLookbackWindow() {
-		assertThrows(IllegalStateException.class, () -> SignalScanRunner.defaultSignalDate(at("2026-10-02T21:00:00"), date -> false));
+		assertThrows(IllegalStateException.class, () -> SignalDates.defaultSignalDate(at("2026-10-02T21:00:00"), date -> false));
 	}
 
 	@Test
@@ -86,7 +86,7 @@ class SignalScanRunnerTest {
 
 	private static SignalScan.Row row(int rank, String symbol, String name, StrategyOutcome<IchimokuCloudBreakout.Result> b,
 			StrategyOutcome<InstitutionNetBuySignal.Result> a, Instant updatedAt) {
-		return new SignalScan.Row(rank, symbol, name, b, a, updatedAt);
+		return new SignalScan.Row(rank, symbol, name, b, a, updatedAt, null);
 	}
 
 	private static SignalScan sampleScan() {
@@ -105,7 +105,7 @@ class SignalScanRunnerTest {
 
 	private static TargetUniverse sampleUniverse() {
 		return new TargetUniverse(List.of(new TargetUniverse.Member(1, "005930", "삼성전자", "1")),
-			List.of(new TargetUniverse.Exclusion(9, "999999", ExclusionReason.WARNING_LOOKUP_FAILED)));
+			List.of(new TargetUniverse.Exclusion(9, "999999", ExclusionReason.WARNING_LOOKUP_FAILED)), null);
 	}
 
 	@Test

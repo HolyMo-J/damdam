@@ -13,6 +13,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -117,7 +120,20 @@ public class TargetUniverseService {
 			log.warn("[대상 종목군] 경고 조회에 실패해 제외된 종목이 {}개 있습니다 (호출 제한이나 일시 장애일 수 있음)", lookupFailures);
 		}
 		log.info("[대상 종목군] 순위 {}종목 중 {}종목 통과, {}종목 제외", rankings.size(), members.size(), exclusions.size());
-		return new TargetUniverse(List.copyOf(members), List.copyOf(exclusions));
+		return new TargetUniverse(List.copyOf(members), List.copyOf(exclusions), parseRankedAt(page.rankedAt()));
+	}
+
+	// 해석하지 못하는 값은 시각을 모르는 것(null)으로 둔다. 모르면 호출하는 쪽이 확정 전으로 보고 막는다 (fail-closed)
+	static Instant parseRankedAt(String rankedAt) {
+		if (rankedAt == null) {
+			return null;
+		}
+		try {
+			return OffsetDateTime.parse(rankedAt).toInstant();
+		} catch (DateTimeParseException e) {
+			log.warn("[대상 종목군] rankedAt을 해석하지 못했습니다: {}", rankedAt);
+			return null;
+		}
 	}
 
 	private void pause() {

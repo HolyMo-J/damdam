@@ -25,7 +25,6 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 // signal-scan 프로필로 실행할 때만 동작하는 조회 전용 신호 판정 도구. 거래대금 상위 100종목에서 대상 종목군을 만들고(TargetUniverseService),
 // 전략 A, B 신호를 한 번 판정해서(SignalScanService) 신호가 난 종목과 판정 불가 건수를 보여준다. 주문은 하지 않는다.
@@ -45,8 +44,7 @@ public class SignalScanRunner implements CommandLineRunner {
 	private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 	private static final DateTimeFormatter KST_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 	private static final Path REPORT = Path.of("..", "records", "probe", "signal-scan.log");
-	static final LocalTime CONFIRMED_AFTER = LocalTime.of(20, 30);
-	private static final int MAX_LOOKBACK_DAYS = 15;
+	private static final LocalTime CONFIRMED_AFTER = SignalDates.CONFIRMED_AFTER;
 	private static final String SIGNAL_DATE_ARG = "--signal-date=";
 
 	private final TargetUniverseService universeService;
@@ -77,7 +75,7 @@ public class SignalScanRunner implements CommandLineRunner {
 		List<String> lines = new ArrayList<>();
 		LocalDate signalDate;
 		try {
-			signalDate = signalDateArg(args).orElseGet(() -> defaultSignalDate(now, calendarService::isTradingDay));
+			signalDate = signalDateArg(args).orElseGet(() -> SignalDates.defaultSignalDate(now, calendarService::isTradingDay));
 		} catch (RuntimeException e) {
 			lines.add("=== 신호 판정 시작 " + now.format(KST_TIME) + " (KST) ===");
 			lines.add("[실패] 신호일을 정하지 못했습니다: " + e.getMessage());
@@ -115,22 +113,6 @@ public class SignalScanRunner implements CommandLineRunner {
 			}
 		}
 		return Optional.empty();
-	}
-
-	// 오늘이 영업일이고 확정 시각(20:30) 이후면 오늘, 아니면 직전 영업일. 영업일 판정은 호출하는 쪽이 넘긴다
-	static LocalDate defaultSignalDate(ZonedDateTime now, Predicate<LocalDate> isTradingDay) {
-		LocalDate date = now.toLocalDate();
-		boolean todayConfirmed = !now.toLocalTime().isBefore(CONFIRMED_AFTER);
-		if (todayConfirmed && isTradingDay.test(date)) {
-			return date;
-		}
-		for (int i = 0; i < MAX_LOOKBACK_DAYS; i++) {
-			date = date.minusDays(1);
-			if (isTradingDay.test(date)) {
-				return date;
-			}
-		}
-		throw new IllegalStateException("최근 " + MAX_LOOKBACK_DAYS + "일 안에서 영업일을 찾지 못했습니다.");
 	}
 
 	// 순수 함수라 테스트에서 직접 부른다. 신호가 난 종목만 근거와 함께 보여주고, 나머지는 건수로만 요약한다

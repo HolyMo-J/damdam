@@ -14,7 +14,7 @@ import java.util.List;
 @Service
 public class AtrService {
 
-	private static final int ATR_PERIOD = 14;
+	public static final int ATR_PERIOD = 14;
 	// 오늘 날짜 봉이 섞여 있어도 걸러낸 뒤 ATR_PERIOD + 1개를 채울 수 있게 여유분 1개를 더 받는다
 	private static final int FETCH_COUNT = ATR_PERIOD + 2;
 

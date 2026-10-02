@@ -12,9 +12,11 @@ import com.damdam.bot.stocks.StockWarningService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -77,6 +79,23 @@ class TargetUniverseServiceTest {
 			new TargetUniverse.Exclusion(2, "B", ExclusionReason.NOT_ORDINARY_STOCK),
 			new TargetUniverse.Exclusion(3, "C", ExclusionReason.INVESTMENT_RISK),
 			new TargetUniverse.Exclusion(4, "D", ExclusionReason.TRADING_SUSPENDED)), universe.exclusions());
+	}
+
+	@Test
+	void carriesRankingTimeAsInstant() {
+		givenRankings(ranking(1, "A"));
+		when(stockInfoService.getStocks(anyList())).thenReturn(List.of(stock("A", "STOCK", false)));
+		when(stockWarningService.getWarnings("A")).thenReturn(List.of());
+
+		// 20:17:36 KST = 11:17:36 UTC
+		assertEquals(Instant.parse("2026-09-28T11:17:36Z"), service.build().rankedAt());
+	}
+
+	@Test
+	void unreadableRankingTimeBecomesNullSoCallersCanFailClosed() {
+		assertNull(TargetUniverseService.parseRankedAt(null));
+		assertNull(TargetUniverseService.parseRankedAt("어제 저녁"));
+		assertNull(TargetUniverseService.parseRankedAt("2026-09-28T20:17:36"));
 	}
 
 	@Test

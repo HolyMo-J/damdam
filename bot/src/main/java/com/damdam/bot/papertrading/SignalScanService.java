@@ -1,5 +1,7 @@
 package com.damdam.bot.papertrading;
 
+import com.damdam.bot.market.AtrService;
+import com.damdam.bot.market.AverageTrueRange;
 import com.damdam.bot.market.Candle;
 import com.damdam.bot.stocks.InvestorTradingRecord;
 import com.damdam.bot.stocks.SignalInputService;
@@ -9,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -118,8 +121,9 @@ public class SignalScanService {
 		} catch (StockLookupException e) {
 			log.warn("[신호 판정] {} 일봉 조회 실패로 두 전략 모두 판정하지 못했습니다: {}", symbol, e.getMessage());
 			return new SignalScan.Row(member.rank(), symbol, member.name(),
-				StrategyOutcome.fetchFailed(e.getMessage()), StrategyOutcome.fetchFailed(e.getMessage()), null);
+				StrategyOutcome.fetchFailed(e.getMessage()), StrategyOutcome.fetchFailed(e.getMessage()), null, null);
 		}
+		SignalScan.EntryBasis entryBasis = entryBasisOf(candles, signalDate);
 
 		StrategyOutcome<IchimokuCloudBreakout.Result> ichimoku =
 			evaluateSafely(symbol, "전략 B", () -> IchimokuCloudBreakout.evaluate(asOf(candles, signalDate), signalDate));
@@ -140,7 +144,22 @@ public class SignalScanService {
 			log.warn("[신호 판정] {} 매매동향 조회 실패로 전략 A를 판정하지 못했습니다: {}", symbol, e.getMessage());
 			institution = StrategyOutcome.fetchFailed(e.getMessage());
 		}
-		return new SignalScan.Row(member.rank(), symbol, member.name(), ichimoku, institution, flowUpdatedAt);
+		return new SignalScan.Row(member.rank(), symbol, member.name(), ichimoku, institution, flowUpdatedAt, entryBasis);
+	}
+
+	// 신호일 ATR(14)과 종가. 신호 판정과 같은 방식으로 신호일 이후 봉을 버린 일봉에서 뽑아 두 값이 신호 근거와 같은 봉을 보게 한다.
+	// 계산하지 못하면 null이다 (봉이 15개 미만, 신호일 봉 없음, 값 형식 오류). 신호 판정 자체의 실패는 evaluateSafely가 따로 남긴다
+	private static SignalScan.EntryBasis entryBasisOf(List<Candle> candles, LocalDate signalDate) {
+		try {
+			List<Candle> trimmed = asOf(candles, signalDate);
+			if (!DailyCandles.dateOf(trimmed.get(0)).equals(signalDate)) {
+				return null;
+			}
+			return new SignalScan.EntryBasis(AverageTrueRange.calculate(trimmed, AtrService.ATR_PERIOD),
+				new BigDecimal(trimmed.get(0).closePrice()));
+		} catch (IllegalArgumentException | DateTimeException e) {
+			return null;
+		}
 	}
 
 	// 목록 맨 앞의 신호일 이후 봉만 버린다. 신호 함수는 0번 봉이 정확히 신호일이어야 하는데, 다음 거래일 장 시작 뒤에 다시 돌리면

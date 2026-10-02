@@ -75,7 +75,7 @@ class SignalScanServiceTest {
 		for (int i = 0; i < symbols.length; i++) {
 			members.add(new TargetUniverse.Member(i + 1, symbols[i], "이름" + symbols[i], "1000000"));
 		}
-		return new TargetUniverse(members, List.of());
+		return new TargetUniverse(members, List.of(), null);
 	}
 
 	private void givenGoodInputs(String symbol, String netBuyEachDay) {
@@ -128,6 +128,48 @@ class SignalScanServiceTest {
 		assertTrue(scan.rows().get(0).ichimokuSignaled());
 		assertEquals(SIGNAL_DATE, scan.rows().get(0).ichimoku().result().signalDate());
 		assertFalse(scan.rows().get(1).ichimokuSignaled());
+	}
+
+	@Test
+	void entryBasisHoldsSignalDayAtrAndCloseFromTheSameCandles() {
+		when(inputService.getDailyCandles("A")).thenReturn(breakoutCandles(SIGNAL_DATE, 100));
+		when(inputService.getInstitutionFlows("A")).thenReturn(flows("10"));
+
+		SignalScan.EntryBasis basis = service.scan(universe("A"), SIGNAL_DATE).rows().get(0).entryBasis();
+
+		// 신호일 봉의 진짜 변동폭은 고가 110 - 저가 100 = 10이고 나머지 13일은 0이라 ATR(14) = 10 / 14
+		assertEquals(new BigDecimal("0.7143"), basis.atr());
+		assertEquals(new BigDecimal("110"), basis.signalClose());
+	}
+
+	@Test
+	void entryBasisIgnoresCandlesNewerThanTheSignalDate() {
+		List<Candle> candles = new ArrayList<>(breakoutCandles(SIGNAL_DATE, 100));
+		candles.add(0, candle(SIGNAL_DATE.plusDays(1), "500", "500", "9"));   // 다음 거래일의 잠정 봉
+		when(inputService.getDailyCandles("A")).thenReturn(candles);
+		when(inputService.getInstitutionFlows("A")).thenReturn(flows("10"));
+
+		SignalScan.EntryBasis basis = service.scan(universe("A"), SIGNAL_DATE).rows().get(0).entryBasis();
+
+		assertEquals(new BigDecimal("110"), basis.signalClose());
+		assertEquals(new BigDecimal("0.7143"), basis.atr());
+	}
+
+	@Test
+	void entryBasisIsNullWhenThereAreTooFewCandlesForAtrOrTheFetchFailed() {
+		when(inputService.getDailyCandles("A")).thenReturn(flatCandles(SIGNAL_DATE, 14));   // ATR(14)은 15봉 필요
+		when(inputService.getInstitutionFlows("A")).thenReturn(flows("10"));
+		givenCandleFailure("B");
+		// 판정 종목이 전략마다 절반 이상이어야 스캔이 성공하므로 정상 종목을 충분히 둔다
+		givenGoodInputs("C", "10");
+		givenGoodInputs("D", "10");
+		givenGoodInputs("E", "10");
+
+		SignalScan scan = service.scan(universe("A", "B", "C", "D", "E"), SIGNAL_DATE);
+
+		assertNull(scan.rows().get(0).entryBasis());
+		assertNull(scan.rows().get(1).entryBasis());
+		assertEquals(new BigDecimal("0.0000"), scan.rows().get(2).entryBasis().atr());
 	}
 
 	@Test
@@ -313,7 +355,7 @@ class SignalScanServiceTest {
 
 	@Test
 	void emptyUniverseFails() {
-		assertThrows(IllegalStateException.class, () -> service.scan(new TargetUniverse(List.of(), List.of()), SIGNAL_DATE));
+		assertThrows(IllegalStateException.class, () -> service.scan(new TargetUniverse(List.of(), List.of(), null), SIGNAL_DATE));
 	}
 
 	@Test

@@ -15,13 +15,13 @@ import java.util.stream.Collectors;
 // 결정적 키로 중복을 무시하며 행을 더하는 CSV 파일. 같은 날을 다시 정산해도 같은 행이 두 번 쌓이지 않는다.
 // 키는 앞쪽 keyColumns개 열이다 (쉼표, 따옴표, 줄바꿈이 없는 값이어야 한다). 매번 임시 파일에 통째로 쓴 뒤 교체해서
 // 쓰다 죽어도 반쯤 쓴 행이 남지 않는다 (기록이 수백 행 규모라 통째로 쓰는 비용은 무시할 만하다)
-final class CsvTable {
+public final class CsvTable {
 
 	private final Path file;
 	private final List<String> header;
 	private final int keyColumns;
 
-	CsvTable(Path file, List<String> header, int keyColumns) {
+	public CsvTable(Path file, List<String> header, int keyColumns) {
 		if (keyColumns < 1 || keyColumns > header.size()) {
 			throw new IllegalArgumentException("키 열 수가 헤더 범위를 벗어났습니다: " + keyColumns);
 		}
@@ -33,7 +33,7 @@ final class CsvTable {
 	// 파일에 실제로 더한 행 수를 돌려준다. 헤더가 다른 파일이 이미 있으면 덮어쓰지 않고 예외를 던진다.
 	// 같은 키의 행이 이미 있으면 내용이 같을 때만 무시한다. 내용이 다르면(잠정치가 확정치로 바뀌었거나, 설정이 바뀐 채
 	// 재실행한 경우) 어느 쪽이 맞는지 이 계층이 알 수 없으므로 조용히 넘기지 않고 예외를 던진다
-	int append(List<List<String>> rows) {
+	public int append(List<List<String>> rows) {
 		if (rows.isEmpty()) {
 			return 0;
 		}
