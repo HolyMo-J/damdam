@@ -11,7 +11,31 @@
       "Bash(cat ./bot/data/**)",
       "Bash(type ./bot/data/**)",
       "Bash(more ./bot/data/**)",
-      "Bash(Get-Content ./bot/data/**)"
+      "Bash(Get-Content ./bot/data/**)",
+      "PowerShell(Get-Content *.env*)",
+      "PowerShell(Get-Content *bot*data*)",
+      "PowerShell(Select-String *.env*)",
+      "PowerShell(Select-String *bot*data*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-order-calls.ps1"
+            ]
+          }
+        ]
+      }
     ]
   }
 }
