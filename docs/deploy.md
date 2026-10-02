@@ -69,6 +69,54 @@ journalctl -u damdam-bot --since "10 min ago"
 - `sudo systemctl stop damdam-bot` 실행 후 디스코드로 "봇 종료" 알림이 오는지 확인 (안 오면 `TimeoutStopSec`이 너무 짧거나 종료 훅에 문제가 있다는 뜻)
 - 정지 파일(`bot/data/STOP`)과 재개도 서버에서 동일하게 동작하는지 확인 (README "운영" 참고)
 
+## 6. 서버 보안 기본값 (2026-10-03 초안, 서버에서 아직 시험하지 못함)
+서버에 토스 API 키와 디스코드 웹훅 주소가 올라가므로 배포 직후에 아래를 확인한다 (docs/review-tasks.md E묶음 3번).
+```
+# .env는 봇 사용자만 읽게 하고, 토큰과 안전장치 상태가 있는 폴더도 같은 사용자만 열게 한다
+chmod 600 ~/damdam/.env
+chmod 700 ~/damdam/bot/data
+ls -l ~/damdam/.env           # -rw------- damdam damdam 이어야 한다
+
+# SSH가 비밀번호 로그인을 막고 키로만 접속하는지, root 로그인이 막혔는지 확인한다
+sudo sshd -T | grep -Ei 'passwordauthentication|permitrootlogin|pubkeyauthentication'
+# 기대값: passwordauthentication no, pubkeyauthentication yes, permitrootlogin은 no 또는 prohibit-password
+```
+- SSH 키 접속: 오라클 공식 문서(Managing Key Pairs on Linux Instances)에 Oracle Linux, Ubuntu 등 오라클 Linux 이미지는 비밀번호 대신 SSH 키 쌍으로 접속하고, 기본 SSH 설정이 개인 키로만 로그인을 허용한다고 되어 있다. 그래서 따로 끌 필요는 없지만 위 `sshd -T`로 실제 값을 확인한다 (`sshd_config`를 고쳤다면 `sudo systemctl reload ssh`). 개인 키 파일은 서버가 아니라 접속하는 PC에만 둔다
+- 인바운드 포트: 오라클 공식 문서(Security Lists)에 따르면 VCN의 기본 보안 목록은 SSH(TCP 22) 허용 규칙과 ICMP 규칙 두 개를 기본으로 둔다. 이 봇은 서버 쪽에서 포트를 여는 일이 없다 (체결 감지 웹소켓과 REST 호출은 모두 바깥으로 나가는 연결이고, 1단계에서는 외부에 여는 API를 만들지 않는다). 그래서 22번 외에는 보안 목록에 인바운드 규칙을 **추가하지 않는다**. 서버를 만든 뒤 콘솔의 보안 목록에서 실제 인바운드 규칙 목록을 눈으로 확인한다
+- 22번의 허용 범위: 기본 규칙은 모든 주소(0.0.0.0/0)에서 22번을 받는 형태가 일반적이다(확인 못 함, 콘솔에서 확인). 집 PC 공인 IP가 고정이면 그 주소로 좁힐 수 있지만, IP가 바뀌면 SSH로 못 들어가므로 키 접속과 `fail2ban` 같은 방어와 비교해 정한다 (정해지지 않음)
+- 확인 못 함: 오라클 Ubuntu 이미지에 호스트 방화벽(iptables 규칙)이 기본으로 켜져 있는지, 자동 보안 업데이트(`unattended-upgrades`)가 기본으로 켜져 있는지는 서버를 만든 뒤 `sudo iptables -L -n`, `systemctl status unattended-upgrades`로 확인한다
+- 토스 WTS 허용 IP에는 서버의 공인 IP만 둔다 (4절). 집 PC IP를 오래 남겨 두지 않는다
+
+## 7. 거래 기록 백업 (2026-10-03 초안, 서버에서 아직 시험하지 못함)
+서버로 옮기면 `records/`의 CSV와 `bot/data/`의 안전장치 상태가 서버에만 남는다. 저장소가 공개라 git에 올릴 수도 없고, 오라클이 유휴 인스턴스를 회수하거나 서버를 다시 만들면 1단계 판단과 3단계 가상매매 판단에 쓸 기록이 사라진다 (docs/review-tasks.md E묶음 4번).
+
+백업 대상:
+- 넣는다: `records/` 전체(직접 매매 기록, 가상매매 원장 `records/paper/`, 신호 관찰 기록, 실측 로그), `bot/data/auto_sell_guard.json`, `bot/data/auto_sell_scope_start.txt`, 가상매매 상태 `bot/data/paper/`
+- 뺀다: `bot/data/token.json`(토큰, 새로 발급받으면 되고 유출되면 안 된다), `bot/data/STOP`, `bot/data/shutdown.request`, `.env`(키, 시크릿, 웹훅 주소). 기록 파일에는 계좌 식별값이 없지만(docs/records.md) 백업 위치가 공개되면 안 된다는 점은 같다
+
+방법 비교:
+
+| 방법 | 장점 | 단점 |
+| --- | --- | --- |
+| 가. 집 PC가 서버에서 하루 한 번 당겨 온다 (SSH 키와 `scp`, Windows 작업 스케줄러) | 서버에 외부 저장소 자격증명이 남지 않는다. 무료다. 서버가 압축본을 며칠치 보관하므로 집 PC가 꺼져 있던 날도 다음에 켜질 때 받으면 빠짐이 없다 | 집 PC 한 곳에 의존한다 (집 PC가 고장 나면 복사본이 없다). 집 PC에서 서버로 SSH가 되어야 한다 |
+| 나. 서버가 외부 저장소(오라클 Object Storage, 다른 클라우드 등)로 올린다 | 집 PC가 필요 없다 | 서버에 저장소 자격증명을 두어야 하고(서버가 뚫리면 같이 노출), 같은 오라클 계정이면 계정 문제가 생길 때 서버와 함께 잃는다 |
+| 다. 서버가 비공개 git 저장소로 push한다 | 이력이 남는다 | 쓰기 권한이 있는 키가 서버에 남고, CSV가 쌓이면 저장소가 커진다 |
+
+**권장은 가**: 서버 쪽에 새 자격증명을 늘리지 않는 것이 가장 중요하다. 집 PC 한 곳 의존은 프로젝트 폴더가 이미 OneDrive 아래에 있어서(경로 `...\OneDrive\...\damdam`) 받는 폴더를 그 안에 두면 두 번째 사본이 생길 수 있다. 다만 OneDrive가 `records/`를 실제로 동기화하는지는 확인 못 함이다.
+
+서버 쪽 초안 (damdam 사용자의 `crontab -e`, 가상매매 저녁 실행과 겹치지 않게 아침 시간):
+```
+# 매일 06:30(서버 시간대 Asia/Seoul)에 압축본을 만들고 7일 지난 것을 지운다
+30 6 * * * mkdir -p ~/backup && tar czf ~/backup/damdam-$(date +\%F).tar.gz -C ~/damdam --exclude='token.json' --exclude='STOP' --exclude='shutdown.request' records bot/data && chmod 600 ~/backup/damdam-*.tar.gz && find ~/backup -name 'damdam-*.tar.gz' -mtime +7 -delete
+```
+집 PC 쪽 초안 (PowerShell, Windows 작업 스케줄러로 하루 한 번. OpenSSH 클라이언트가 설치돼 있어야 하고 설치 여부는 확인 못 함):
+```
+scp -i <개인 키 경로> damdam@<서버 공인 IP>:backup/damdam-*.tar.gz <받을 폴더>
+```
+- 가상매매 원장은 CSV를 먼저 쓰고 상태 JSON을 마지막에 교체하는 구조라서(docs/strategy.md "구현 현황"), 쓰는 도중에 압축해도 다음 정산에서 다시 계산하면 맞춰진다. 그래도 저녁 실행 시간대는 피한다
+- 복원 시험: 한 달에 한 번 압축본을 다른 폴더에 풀어 CSV가 열리는지, 상태 JSON이 읽히는지 본다. 풀기만 하고 `bot/data`에 덮어쓰지 않는다 (덮어쓰면 서버의 상태가 과거로 돌아간다)
+- 확인 못 함: 위 명령은 서버에서 실행해 보지 않았다. 7일 보관이 충분한지, 집 PC에서 서버로의 SSH가 서버 보안 규칙(6절)과 충돌하지 않는지도 서버가 생긴 뒤에 본다
+
 ## 메모리 (AMD 무료 인스턴스 1GB 기준)
 - 오라클 공식 문서(Always Free Resources)에서 AMD `VM.Standard.E2.1.Micro`는 메모리 1GB, CPU 1/8 OCPU다. ARM(A1) 무료 인스턴스는 합계 2 OCPU와 메모리 12GB라서 ARM을 만들면 이 절은 해당 없다 (서비스 파일의 `-Xmx256m`도 키워도 된다). 순수 Java jar라 집 PC나 Actions에서 빌드한 jar가 ARM에서도 돌 것으로 보지만 실제로는 확인 못 함
 - 서버에서 빌드하지 않는 이유: 1GB 안에 OS와 Gradle 프로세스까지 올라간다. 로컬 시험에서 Gradle 힙을 256MB로 줄여도 빌드는 성공했고 64MB에서 실패했다. 다만 이는 힙만 잰 것이라 서버에서 실제로 부족한지는 확인 못 함
