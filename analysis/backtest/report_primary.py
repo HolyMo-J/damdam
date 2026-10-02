@@ -1,6 +1,6 @@
 """탐색에서 뽑힌 주 후보의 참고 진단 (탐색 구간만 사용, 결과를 analysis/results/primary_reference{VERSION}.json에 저장).
 
-보고만 하고 확인 구간에 넘길지를 바꾸지 않는다 (docs/strategy.md "탐색 실행 규칙").
+보고만 하고 확인 구간에 넘길지를 바꾸지 않는다 (docs/backtest-log.md "탐색 실행 규칙").
 실행: analysis/.venv/Scripts/python.exe -m backtest.report_primary  (analysis 폴더에서)
 """
 import json

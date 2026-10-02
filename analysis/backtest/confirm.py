@@ -1,4 +1,4 @@
-"""확인 구간 실행 (docs/strategy.md "확인 구간 실패 시 절차"와 "탐색 실행 규칙").
+"""확인 구간 실행 (docs/backtest-log.md "확인 구간 실패 시 절차"와 "탐색 실행 규칙").
 
 탐색에서 뽑힌 숫자를 그대로 적용만 한다 (재조정 금지). 한 번 열면 다시 쓸 수 없는 구간이라 코드로 한 번만 돌게 막는다.
 - 주 후보: analysis/results/confirm_result_primary.json이 이미 있으면 실행하지 않는다

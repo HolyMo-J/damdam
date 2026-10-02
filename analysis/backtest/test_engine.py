@@ -181,7 +181,7 @@ class MarketFilterTest(unittest.TestCase):
 
 
 class TrendFilterTest(unittest.TestCase):
-    """추세 필터 (docs/strategy.md 확인 구간 게이트 실패 후 재설계, 2026-09-23)."""
+    """추세 필터 (docs/backtest-log.md 확인 구간 게이트 실패 후 재설계, 2026-09-23)."""
     S = 70  # SMA(60) 워밍업(60봉)을 채우려고 T보다 늦은 신호일을 씀
 
     def flat_crash(self):

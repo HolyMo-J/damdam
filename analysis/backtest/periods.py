@@ -24,7 +24,7 @@ def load_daily_csv(path, start=BACKTEST_START):
     return df
 
 
-# 날짜 기준 3분할 (docs/strategy.md 백테스트 탐색 방법론). 날짜 범위와 봉 수를 보는 리포트용이다
+# 날짜 기준 3분할 (docs/backtest-log.md 탐색 방법론). 날짜 범위와 봉 수를 보는 리포트용이다
 def split_periods(df):
     d = _dates(df)
     return {
