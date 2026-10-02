@@ -12,8 +12,8 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 // 현재가 조회 (GET /api/v1/prices, MARKET_DATA 그룹 초당 15회). 한 번 호출에 종목을 최대 200개까지 콤마로 묶어 보낸다.
-// 조회 전용이고 주문 경로와 관계없다. 명세 예시는 국내(005930,000660)와 해외(AAPL,MSFT)가 따로 있고, 한 호출에 섞어도 되는지는 확인 못 함이다.
-// 해외 시세가 실시간인지 지연인지도 명세에 없어서 확인 못 함이다 (응답의 timestamp와 조회 시각의 차이로 본다)
+// 조회 전용이고 주문 경로와 관계없다. 명세 예시는 국내(005930,000660)와 해외(AAPL,MSFT)가 따로 있고, 한 호출에 섞어도 되는 것은 실측으로 확인했다 (2026-10-03).
+// 해외 시세가 실시간인지 지연인지는 명세에 없다. 응답의 timestamp와 조회 시각의 차이로 보고, 미국 정규장 중 1~3초였다 (docs/measurements.md "현재가 조회")
 @Service
 public class PriceService {
 
