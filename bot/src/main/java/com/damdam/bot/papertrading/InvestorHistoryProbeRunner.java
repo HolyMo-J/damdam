@@ -27,7 +27,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 // investor-history-probe 프로필로 실행할 때만 동작하는 조회 전용 도구. 전략 A가 쓰는 투자자별 매매동향이 과거 얼마나 오래 보관되는지
-// (일봉 백테스트를 병행할 수 있는지, docs/strategy.md "전략 A" 참고)를 종목마다 until과 nextUntil로 과거 방향으로 끝까지 넘기며 잰다.
+// (일봉 백테스트를 병행할 수 있는지, docs/measurements.md "매매동향 보관 기간" 참고)를 종목마다 until과 nextUntil로 과거 방향으로 끝까지 넘기며 잰다.
 // 페이지 상한(MAX_PAGES)에 걸려 멈춘 것과 API가 더 없다고 응답한 것을 구분해서 출력한다: 상한에 걸린 날짜는 보관 한계가 아니라 우리 한도다
 // (수집기 상한에 잘린 1988년을 데이터 특성으로 착각했던 사고와 같은 실수를 막으려는 것). 주문 경로는 없다.
 // 사용법: .\gradlew.bat bootRun --args="--spring.profiles.active=investor-history-probe [종목코드 ...]" (기본 삼성전자와 코스닥 종목 하나)
