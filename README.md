@@ -87,9 +87,12 @@ damdam/
 ├── analysis/                # Python + pandas 백테스트, 기록 분석
 ├── records/                 # 매매 기록 CSV와 실측 조사 로그 저장 위치 (git 제외)
 ├── docs/
-│   ├── todo.md              # 확인 필요한 것, 다음 할 일
+│   ├── todo.md              # 아직 모르는 것(확인 필요), 다음 할 일
 │   ├── done.md              # 완료한 작업 이력
 │   ├── strategy.md          # 청산 규칙, 매매 전략, 3단계 가상매매 설계
+│   ├── measurements.md      # 명세로 알 수 없던 값을 실제 응답과 데이터로 확인한 실측 기록
+│   ├── backtest-log.md      # 2단계 백테스트 실험 이력 (잠정 보류)
+│   ├── glossary.md          # 표준 용어와 정의
 │   ├── records.md           # 매매 기록 설계
 │   ├── live-checklist.md    # 1단계 청산 자동화 실주문 전환 체크리스트
 │   ├── deploy.md            # 서버(오라클 클라우드) 배포 절차
